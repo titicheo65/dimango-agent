@@ -1,0 +1,29 @@
+# Configuración del negocio — Generado por AgentKit
+negocio:
+  nombre: "Dimango — Gelatería & Restaurante"
+  descripcion: >
+    Restaurante italiano completo ubicado en Avenida Raúl Pey 2592, Playa Chinchorro, Arica.
+    Gelatería con producción diaria de helados artesanales, fábrica artesanal, cafetería,
+    pizzería, trattoria y bar. Ofrece pastas, pizzas, carnes, pescados, entradas, ensaladas,
+    sándwiches, postres, helados, cafetería, micheladas, cervezas, tragos, vinos, espumantes,
+    destilados, bebidas, jugos, acompañamientos y menú infantil. Atiende a locales de Arica,
+    turistas, empleados públicos y trabajadores en general, de todas las edades.
+  direccion: "Avenida Raúl Pey 2592, Playa Chinchorro, Arica"
+  telefono: "+56 9 5667 3866"
+  web: "www.dimango.cl"
+  horario: "Lunes a Jueves 11:30 a 00:00 hrs | Viernes y Sábado 11:30 a 00:30 hrs | Domingo 11:30 a 23:00 hrs"
+
+agente:
+  nombre: "Soporte Dimango"
+  tono: "Profesional y cálido"
+  casos_de_uso:
+    - "Responder preguntas frecuentes"
+    - "Agendar reservaciones"
+    - "Calificar y atender leads / ventas"
+    - "Tomar pedidos"
+    - "Soporte post-venta"
+    - "Atención a proveedores: cotizaciones y presupuestos"
+
+metadata:
+  creado: "2026-06-18"
+  version: "1.0"
