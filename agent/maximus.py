@@ -128,15 +128,39 @@ def contexto_fecha() -> str:
     )
 
 
-def construir_system_prompt() -> str:
-    memoria = cargar_memoria()
-    if not memoria:
-        return (
-            "Eres Maximus, el estratega de negocio de Ricardo Vinet. "
-            "ADVERTENCIA: no pudiste cargar tu memoria. Dilo en la primera línea "
-            "y no respondas nada que dependa de datos que no tienes."
-        )
+def _cerebro_atomico():
+    """
+    Devuelve el recuperador si la memoria atómica existe y está completa.
+    Si falta cualquier cosa, devuelve None y se usan los seis archivos.
+    Falla cerrado: preferimos memoria completa y lenta antes que memoria a medias.
+    """
+    try:
+        if not (MEMORY_DIR / "memoria" / "indice.json").exists():
+            return None
+        if not (MEMORY_DIR / "core" / "SOUL.md").exists():
+            return None
+        from agent.memoria_atomica import Cerebro
+        return Cerebro()
+    except Exception as e:
+        logger.warning(f"[MAXIMUS] Memoria atómica no disponible, uso los archivos completos: {e}")
+        return None
 
+
+def construir_prompt_atomico(mensaje: str) -> tuple[str, str] | None:
+    """(bloque fijo cacheable, bloque variable) o None si no hay memoria atómica."""
+    c = _cerebro_atomico()
+    if c is None:
+        return None
+    try:
+        fija, variable, ids = c.contexto(mensaje)
+        logger.info(f"[MAXIMUS] {len(ids)} notas recuperadas: {', '.join(ids[:8])}")
+        return _encabezado() + "\n\n" + fija, variable
+    except Exception as e:
+        logger.error(f"[MAXIMUS] Falló la recuperación, uso los archivos completos: {e}")
+        return None
+
+
+def _encabezado() -> str:
     return f"""Eres **Maximus**, el estratega y operador de negocio de Ricardo Vinet (DiMango, Arica, Chile).
 
 {contexto_fecha()}
@@ -148,21 +172,31 @@ Estás respondiendo por **WhatsApp**, no por consola. Eso cambia el formato, no 
 - Conclusión primero, siempre.
 - **Nunca cierres con "¿algo más?", "¿en qué te ayudo?" ni fórmulas de asistente.** No eres un asistente esperando órdenes. Si el tema queda abierto, propón el siguiente movimiento concreto. Si está cerrado, cierra y calla.
 
-Todo lo demás —tu carácter, tus prohibiciones, tu forma de discutir— está en los
-archivos de abajo. SOUL.md manda sobre tu conducta. MEMORY.md manda sobre los
-demás cuando hay conflicto: es lo más reciente.
+Tu carácter y tus prohibiciones están en SOUL.md, que manda sobre tu conducta.
+Entre notas en conflicto manda la de mayor **autoridad de fuente** (1 sistema
+oficial > 2 exportación directa > 3 planilla interna > 4 informado > 5 estimación).
+Si dos notas del mismo período se contradicen con la misma autoridad, **decláralo
+en vez de elegir en silencio.**
 
 Regla que no se negocia: **nunca inventes un número.** Si el dato no está en tu
-memoria, di "no lo tengo" y ofrece cómo conseguirlo. Toda estimación se etiqueta
+memoria, di "no lo tengo" y ofrece dónde consultarlo. Toda estimación se etiqueta
 como estimación.
 
-Si Ricardo te pide algo que requiere escribir en la memoria, editar archivos o
-ejecutar código: dile que eso lo hagan en la sesión de Claude Code en `~/harvey`,
-porque por WhatsApp solo puedes conversar y consultar. No finjas que lo hiciste.
+Si Ricardo te pide escribir en la memoria, editar archivos o ejecutar código:
+dile que eso se hace en la sesión de Claude Code, no por WhatsApp. No finjas que
+lo hiciste."""
 
-===== TU MEMORIA =====
 
-{memoria}"""
+def construir_system_prompt() -> str:
+    """Camino de respaldo: los seis archivos completos, como antes de la migración."""
+    memoria = cargar_memoria()
+    if not memoria:
+        return (
+            "Eres Maximus, el estratega de negocio de Ricardo Vinet. "
+            "ADVERTENCIA: no pudiste cargar tu memoria. Dilo en la primera línea "
+            "y no respondas nada que dependa de datos que no tienes."
+        )
+    return _encabezado() + "\n\n===== TU MEMORIA =====\n\n" + memoria
 
 
 async def responder(mensaje: str, historial: list[dict]) -> str:
@@ -173,16 +207,25 @@ async def responder(mensaje: str, historial: list[dict]) -> str:
     if not mensaje or len(mensaje.strip()) < 2:
         return "¿Me repites? No me llegó nada legible."
 
-    system_prompt = construir_system_prompt()
     mensajes = [{"role": m["role"], "content": m["content"]} for m in historial]
     mensajes.append({"role": "user", "content": mensaje})
 
-    # El system prompt son ~40KB de memoria: se cachea para no pagarlo en cada mensaje.
-    system_bloques = [{
-        "type": "text",
-        "text": system_prompt,
-        "cache_control": {"type": "ephemeral"},
-    }]
+    # Camino nuevo: core + índice (cacheable) y notas recuperadas (variable).
+    # La separación importa — si se mezcla, el prompt cambia entero y el cache
+    # nunca acierta. Camino viejo: los seis archivos completos, en un solo bloque.
+    atomico = construir_prompt_atomico(mensaje)
+    if atomico:
+        fija, variable = atomico
+        system_bloques = [
+            {"type": "text", "text": fija, "cache_control": {"type": "ephemeral"}},
+            {"type": "text", "text": variable},
+        ]
+    else:
+        system_bloques = [{
+            "type": "text",
+            "text": construir_system_prompt(),
+            "cache_control": {"type": "ephemeral"},
+        }]
 
     for modelo in (MODELO, MODELO_FALLBACK):
         try:
