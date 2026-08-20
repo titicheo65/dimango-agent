@@ -9,11 +9,41 @@ y genera respuestas usando la API de Anthropic Claude.
 import os
 import yaml
 import logging
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from anthropic import AsyncAnthropic
 from dotenv import load_dotenv
 
 load_dotenv()
 logger = logging.getLogger("agentkit")
+
+# Zona horaria de Chile — para que el agente sepe qué día es hoy al agendar reservas
+TZ_CHILE = ZoneInfo("America/Santiago")
+
+# Nombres en español (datetime.weekday(): 0=lunes ... 6=domingo)
+_DIAS_SEMANA = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+_MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
+          "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+
+
+def contexto_fecha_actual() -> str:
+    """
+    Genera un bloque con la fecha y día de la semana actuales en hora de Chile.
+    Se antepone al system prompt para que el agente NUNCA adivine el día al agendar
+    reservas (ej: confundir sábado con domingo).
+    """
+    ahora = datetime.now(TZ_CHILE)
+    dia_semana = _DIAS_SEMANA[ahora.weekday()]
+    mes = _MESES[ahora.month - 1]
+    return (
+        "## Fecha y hora actual (referencia obligatoria)\n"
+        f"Hoy es {dia_semana} {ahora.day} de {mes} de {ahora.year}, "
+        f"{ahora.strftime('%H:%M')} hrs (hora de Chile).\n"
+        "Usa SIEMPRE esta fecha para calcular días al agendar reservas. Cuando el cliente "
+        "diga un día (\"el sábado\", \"mañana\", \"el 20\"), calcula la fecha exacta a partir "
+        "de HOY y CONFIRMA explícitamente el día de la semana junto con la fecha "
+        "(ej: \"domingo 19 de julio\"). Nunca inventes ni adivines el día de la semana.\n"
+    )
 
 # Cliente de Anthropic
 client = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
@@ -62,7 +92,8 @@ async def generar_respuesta(mensaje: str, historial: list[dict]) -> str:
     if not mensaje or len(mensaje.strip()) < 2:
         return obtener_mensaje_fallback()
 
-    system_prompt = cargar_system_prompt()
+    # Anteponer la fecha/día actual para que el agente no adivine al agendar reservas
+    system_prompt = contexto_fecha_actual() + "\n" + cargar_system_prompt()
 
     # Construir mensajes para la API
     mensajes = []

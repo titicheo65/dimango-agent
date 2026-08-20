@@ -39,8 +39,19 @@ SHOT_DIR.mkdir(exist_ok=True)
 
 EMAIL = os.getenv("MALL_EMAIL", "")
 PASSWORD = os.getenv("MALL_PASSWORD", "")
-TRANSACCIONES = os.getenv("MALL_TRANSACCIONES", "35")
-TOTAL = os.getenv("MALL_TOTAL", "650000")
+
+# --- Valores a subir ---
+# Por defecto se CALCULAN en vivo desde Base44 (app DimangoToGo), replicando el
+# panel AdminVentas. Solo si se definen MANUALMENTE ambas variables de entorno
+# (MALL_TRANSACCIONES y MALL_TOTAL) se usan esos valores fijos (modo manual/prueba).
+OVERRIDE_TRANSACCIONES = os.getenv("MALL_TRANSACCIONES", "")
+OVERRIDE_TOTAL = os.getenv("MALL_TOTAL", "")
+
+# --- Base44 (para calcular la venta real del dia) ---
+BASE44_APP_ID = os.getenv("BASE44_APP_ID", "")
+BASE44_API_KEY = os.getenv("BASE44_API_KEY", "")
+BASE44_LOCAL = os.getenv("MALL_LOCAL", "mall")   # local de este portal en Base44
+IVA = 0.19                                        # IVA Chile 19% (neto = bruto / 1.19)
 
 # Flags de control
 HEADLESS = os.getenv("MALL_HEADLESS", "1") == "1"      # 1 = sin ventana (para servidor)
@@ -72,10 +83,93 @@ def captura(page, nombre: str):
         log.warning(f"No se pudo guardar captura {nombre}: {e}")
 
 
+def obtener_venta_real() -> "tuple[int, int] | None":
+    """
+    Calcula la venta de HOY para el local Mall consultando Base44 (entidad VentaCaja),
+    replicando EXACTAMENTE la logica del panel AdminVentas (ResumenConFolio.jsx):
+
+      - Una venta CUENTA si:  tiene_boleta == true   O   medio_pago == "tarjeta"
+      - Se conserva si:       (fecha_comercial || fecha) == HOY  y  local == "mall"
+      - transacciones = cantidad de ventas (dedup por id)
+      - total (a subir) = NETO sin IVA = round(bruto / 1.19)
+
+    Retorna (transacciones, total_neto) o None si falla o no hay datos.
+    Ante cualquier duda retorna None: el llamador ABORTA en vez de subir algo incorrecto.
+    """
+    if not BASE44_APP_ID or not BASE44_API_KEY:
+        log.error("Faltan BASE44_APP_ID o BASE44_API_KEY en el entorno/.env.")
+        return None
+
+    import httpx  # dependencia del proyecto; import local para no romper el modo manual
+
+    hoy_iso = HOY.strftime("%Y-%m-%d")  # formato Base44: 2026-07-03
+    base_url = f"https://app.base44.com/api/apps/{BASE44_APP_ID}/entities/VentaCaja"
+    headers = {"api_key": BASE44_API_KEY}
+
+    # 4 consultas = {tiene_boleta, tarjeta} x {fecha, fecha_comercial}, luego union sin duplicados
+    combinaciones = [
+        {"local": BASE44_LOCAL, "tiene_boleta": "true", "fecha": hoy_iso, "limit": "500"},
+        {"local": BASE44_LOCAL, "tiene_boleta": "true", "fecha_comercial": hoy_iso, "limit": "500"},
+        {"local": BASE44_LOCAL, "medio_pago": "tarjeta", "fecha": hoy_iso, "limit": "500"},
+        {"local": BASE44_LOCAL, "medio_pago": "tarjeta", "fecha_comercial": hoy_iso, "limit": "500"},
+    ]
+
+    por_id: dict = {}
+    try:
+        with httpx.Client(timeout=30) as client:
+            for params in combinaciones:
+                r = client.get(base_url, params=params, headers=headers)
+                r.raise_for_status()
+                for row in r.json():
+                    por_id[row["id"]] = row
+    except Exception as e:
+        log.error(f"Error consultando Base44: {e}")
+        return None
+
+    # Filtro final por si la API devolvio de mas: (fecha_comercial || fecha) == HOY y local correcto
+    final = [
+        row for row in por_id.values()
+        if (row.get("fecha_comercial") or row.get("fecha") or "") == hoy_iso
+        and row.get("local") == BASE44_LOCAL
+    ]
+
+    if not final:
+        log.warning(f"Base44 no devolvio ventas para local={BASE44_LOCAL} el {hoy_iso}.")
+        return None
+
+    bruto = sum((row.get("total") or 0) for row in final)
+    neto = round(bruto / (1 + IVA))
+    transacciones = len(final)
+    log.info(
+        f"Base44 {BASE44_LOCAL} {hoy_iso}: {transacciones} trans, "
+        f"bruto=${bruto:,.0f}, neto=${neto:,.0f}"
+    )
+    return transacciones, neto
+
+
 def main() -> int:
     if not EMAIL or not PASSWORD:
         log.error("Faltan MALL_EMAIL o MALL_PASSWORD en el entorno/.env. Aborto.")
         return 2
+
+    # --- Determinar los valores a subir ---
+    if OVERRIDE_TRANSACCIONES and OVERRIDE_TOTAL:
+        # Modo manual: valores fijos definidos a mano en el entorno (prueba / correccion)
+        TRANSACCIONES = OVERRIDE_TRANSACCIONES
+        TOTAL = OVERRIDE_TOTAL
+        log.info(f"Modo MANUAL: usando valores del entorno {TRANSACCIONES} / {TOTAL}")
+    else:
+        # Modo automatico: calcular la venta real de hoy desde Base44
+        real = obtener_venta_real()
+        if real is None:
+            log.error("No se pudo calcular la venta real desde Base44. ABORTO (no se sube nada).")
+            return 4
+        n_trans, n_total = real
+        if n_trans <= 0 or n_total <= 0:
+            log.error(f"Venta real invalida ({n_trans} / {n_total}). ABORTO sin subir nada.")
+            return 4
+        TRANSACCIONES = str(n_trans)
+        TOTAL = str(n_total)
 
     log.info("=" * 50)
     log.info(f"Inicio subida de venta — fecha {HOY_TABLA}")
@@ -99,11 +193,12 @@ def main() -> int:
             log.info("Login OK")
 
             # 2) Menu VENTAS
-            page.get_by_role("link", name="Ventas").click()
+            # "Ventas" NO es link role; se clickea por texto exacto
+            page.get_by_text("Ventas", exact=True).first.click()
             page.wait_for_url("**/ventas", timeout=30000)
             page.wait_for_load_state("networkidle")
-            # Espera a que cargue la tabla
-            page.get_by_text("Listado de Ventas").wait_for(timeout=30000)
+            # Espera a que cargue la tabla ("Listado de Ventas" aparece 2 veces -> usar heading)
+            page.get_by_role("heading", name="Listado de Ventas").wait_for(timeout=30000)
             log.info("Pagina Ventas cargada")
             captura(page, "1_ventas")
 
@@ -132,19 +227,17 @@ def main() -> int:
                 fila.locator("button").last.click()  # respaldo: ultimo boton de la fila (Acciones)
             log.info("Modal de edicion abierto")
 
-            # 4) Llenar Ventas presenciales (primer par de campos)
+            # 4) Llenar Ventas presenciales
+            # El modal NO tiene role=dialog y los inputs NO tienen placeholder:
+            # se identifican por atributo name (onSite* = presencial, online* = online).
             page.get_by_text("Modificar Ventas").wait_for(timeout=15000)
-            trans_inputs = page.get_by_placeholder("Transacciones")
-            total_inputs = page.get_by_placeholder("Total ventas netas en pesos")
-            trans_inputs.first.fill(TRANSACCIONES)        # presencial
-            total_inputs.first.fill(TOTAL)                # presencial
+            page.locator("input[name=onSiteTransactionQuantity]").fill(TRANSACCIONES)  # presencial
+            page.locator("input[name=onSiteAmount]").fill(TOTAL)                        # presencial
 
             # Asegurar que "Ventas online" quede vacio (el portal a veces autollena 1/1)
             try:
-                if trans_inputs.count() > 1:
-                    trans_inputs.nth(1).fill("")
-                if total_inputs.count() > 1:
-                    total_inputs.nth(1).fill("")
+                page.locator("input[name=onlineTransactionQuantity]").fill("")
+                page.locator("input[name=onlineAmount]").fill("")
             except Exception as e:
                 log.warning(f"No se pudieron limpiar campos online: {e}")
 

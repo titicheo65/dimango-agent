@@ -24,6 +24,10 @@ knowledge/*
 # Session state
 config/session.yaml
 
+# Automatizacion Mallplaza (logs y capturas con datos del portal)
+scripts/logs/
+scripts/capturas/
+
 # OS
 .DS_Store
 Thumbs.db
@@ -40,3 +44,12 @@ Thumbs.db
 
 # Node (si se usa para Claude Code)
 node_modules/
+
+# Datos del negocio y de terceros — NUNCA al repositorio
+*.xlsx
+*.xls
+*.csv
+*.zip
+
+# Config local de Claude Code (puede contener credenciales en comandos permitidos)
+.claude/settings.local.json

@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Aurex Group Web",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "3456", "--directory", "aurex-web"],
+      "port": 3456
+    },
+    {
+      "name": "DimangoToGo (local)",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": ["-c", "cd /Users/ricardovinet/github/dimango-src && PATH=$HOME/.local/node20/bin:$PATH npm run dev -- --port 5199"],
+      "port": 5199
+    }
+  ]
+}

@@ -6,6 +6,15 @@ import logging
 import httpx
 from fastapi import Request
 from agent.providers.base import ProveedorWhatsApp, MensajeEntrante
+from agent.transcripcion import transcribir_audio
+from agent.vouchers import (
+    es_numero_autorizado,
+    detectar_local,
+    subir_voucher,
+    MENSAJE_CONFIRMACION,
+    MENSAJE_ERROR,
+    MENSAJE_FALTA_LOCAL,
+)
 
 logger = logging.getLogger("agentkit")
 
@@ -37,15 +46,96 @@ class ProveedorMeta(ProveedorWhatsApp):
         for entry in body.get("entry", []):
             for change in entry.get("changes", []):
                 value = change.get("value", {})
+
+                # Meta incluye el nombre de perfil del cliente en value.contacts[].
+                # Lo mapeamos por wa_id para asociarlo a cada mensaje entrante.
+                nombres = {
+                    c.get("wa_id", ""): c.get("profile", {}).get("name", "")
+                    for c in value.get("contacts", [])
+                }
+
                 for msg in value.get("messages", []):
-                    if msg.get("type") == "text":
+                    tipo = msg.get("type")
+                    remitente = msg.get("from", "")
+
+                    if tipo == "text":
                         mensajes.append(MensajeEntrante(
-                            telefono=msg.get("from", ""),
+                            telefono=remitente,
                             texto=msg.get("text", {}).get("body", ""),
                             mensaje_id=msg.get("id", ""),
                             es_propio=False,  # Meta solo envía mensajes entrantes
+                            nombre=nombres.get(remitente, ""),
                         ))
+
+                    elif tipo == "audio":
+                        # Nota de voz: descargamos el audio y lo transcribimos a texto
+                        media_id = msg.get("audio", {}).get("id", "")
+                        texto = await self._transcribir_media(media_id)
+                        if texto:
+                            mensajes.append(MensajeEntrante(
+                                telefono=remitente,
+                                texto=texto,
+                                mensaje_id=msg.get("id", ""),
+                                es_propio=False,
+                                nombre=nombres.get(remitente, ""),
+                            ))
+
+                    elif tipo == "image":
+                        # Comprobante de pago: si viene de un número autorizado (personal),
+                        # lo archivamos en Google Drive y confirmamos. NO pasa por Claude.
+                        if es_numero_autorizado(remitente):
+                            await self._procesar_comprobante(msg, remitente)
+                        # Imágenes de otros números se ignoran (no se generan mensajes)
         return mensajes
+
+    async def _procesar_comprobante(self, msg: dict, remitente: str) -> None:
+        """Descarga la imagen de comprobante, la sube a Drive y responde al remitente.
+
+        El local (mall/playa) se toma del texto que acompaña la foto (caption).
+        Si no viene el local, se le pide al remitente que lo indique.
+        """
+        imagen = msg.get("image", {})
+        local = detectar_local(imagen.get("caption", ""))
+        if not local:
+            await self.enviar_mensaje(remitente, MENSAJE_FALTA_LOCAL)
+            return
+
+        media_id = imagen.get("id", "")
+        mime = imagen.get("mime_type", "image/jpeg")
+        imagen_bytes = await self._descargar_media(media_id)
+        ok = await subir_voucher(imagen_bytes, mime, remitente, local)
+        await self.enviar_mensaje(
+            remitente, MENSAJE_CONFIRMACION if ok else MENSAJE_ERROR
+        )
+
+    async def _descargar_media(self, media_id: str) -> bytes | None:
+        """Descarga un archivo de media (audio, imagen, etc.) desde Meta por su ID."""
+        if not media_id or not self.access_token:
+            return None
+        headers = {"Authorization": f"Bearer {self.access_token}"}
+        async with httpx.AsyncClient(timeout=60) as client:
+            # 1) Pedir la URL temporal del media
+            meta_url = f"https://graph.facebook.com/{self.api_version}/{media_id}"
+            r = await client.get(meta_url, headers=headers)
+            if r.status_code != 200:
+                logger.error(f"Error obteniendo URL de media: {r.status_code} — {r.text}")
+                return None
+            media_url = r.json().get("url")
+            if not media_url:
+                return None
+            # 2) Descargar el archivo (requiere el mismo token en el header)
+            r2 = await client.get(media_url, headers=headers)
+            if r2.status_code != 200:
+                logger.error(f"Error descargando media: {r2.status_code}")
+                return None
+            return r2.content
+
+    async def _transcribir_media(self, media_id: str) -> str:
+        """Descarga una nota de voz y la convierte a texto."""
+        audio_bytes = await self._descargar_media(media_id)
+        if not audio_bytes:
+            return ""
+        return await transcribir_audio(audio_bytes)
 
     async def enviar_mensaje(self, telefono: str, mensaje: str) -> bool:
         """Envía mensaje via Meta WhatsApp Cloud API."""
@@ -67,4 +157,46 @@ class ProveedorMeta(ProveedorWhatsApp):
             r = await client.post(url, json=payload, headers=headers)
             if r.status_code != 200:
                 logger.error(f"Error Meta API: {r.status_code} — {r.text}")
+            return r.status_code == 200
+
+    async def enviar_plantilla(
+        self, telefono: str, plantilla: str, parametros: list[str], idioma: str = "es"
+    ) -> bool:
+        """
+        Envía una plantilla aprobada de WhatsApp (mensaje iniciado por el negocio).
+
+        Args:
+            telefono: Número del destinatario
+            plantilla: Nombre de la plantilla aprobada en Meta (ej: "pedido_tortas")
+            parametros: Valores para las variables {{1}}, {{2}}, ... en orden
+            idioma: Código de idioma de la plantilla (default: "es")
+        """
+        if not self.access_token or not self.phone_number_id:
+            logger.warning("META_ACCESS_TOKEN o META_PHONE_NUMBER_ID no configurados")
+            return False
+        url = f"https://graph.facebook.com/{self.api_version}/{self.phone_number_id}/messages"
+        headers = {
+            "Authorization": f"Bearer {self.access_token}",
+            "Content-Type": "application/json",
+        }
+        componentes = []
+        if parametros:
+            componentes.append({
+                "type": "body",
+                "parameters": [{"type": "text", "text": str(p)} for p in parametros],
+            })
+        payload = {
+            "messaging_product": "whatsapp",
+            "to": telefono,
+            "type": "template",
+            "template": {
+                "name": plantilla,
+                "language": {"code": idioma},
+                "components": componentes,
+            },
+        }
+        async with httpx.AsyncClient() as client:
+            r = await client.post(url, json=payload, headers=headers)
+            if r.status_code != 200:
+                logger.error(f"Error Meta plantilla: {r.status_code} — {r.text}")
             return r.status_code == 200

@@ -12,14 +12,23 @@ import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import PlainTextResponse
+from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
 from agent.brain import generar_respuesta
 from agent.memory import inicializar_db, guardar_mensaje, obtener_historial, esta_pausada, guardar_nombre
 from agent.providers import obtener_proveedor
 from agent.admin import router as admin_router
-from agent.colacion import buscar_empleado, manejar_mensaje_colacion, loop_recordatorios
+from agent.colacion import (
+    buscar_empleado,
+    manejar_mensaje_colacion,
+    loop_recordatorios,
+    loop_recordatorios_diarios,
+    migrar_esquema,
+)
 from agent.colacion_web import router as colacion_router
+from agent.maximus import es_maximus, responder as responder_maximus
+from agent import telegram_maximus as tg
 
 load_dotenv()
 
@@ -72,6 +81,7 @@ def seleccionar_proveedor(body: dict):
 async def lifespan(app: FastAPI):
     """Inicializa la base de datos al arrancar el servidor."""
     await inicializar_db()
+    await migrar_esquema()
     logger.info("Base de datos inicializada")
     logger.info(f"Servidor AgentKit corriendo en puerto {PORT}")
     logger.info(f"Proveedor de WhatsApp: {proveedor.__class__.__name__}")
@@ -81,14 +91,25 @@ async def lifespan(app: FastAPI):
         logger.info(f"Proveedor de Messenger: {proveedor_messenger.__class__.__name__}")
     # Loop en segundo plano que avisa cuando alguien se pasa de su colación
     tarea_colacion = asyncio.create_task(loop_recordatorios(proveedor))
+    # Loop que recuerda tomar colación a los horarios fijos por local (control 100%)
+    tarea_recordatorio_diario = asyncio.create_task(loop_recordatorios_diarios(proveedor))
     yield
     tarea_colacion.cancel()
+    tarea_recordatorio_diario.cancel()
 
 
 app = FastAPI(
     title="AgentKit — WhatsApp AI Agent",
     version="1.0.0",
     lifespan=lifespan
+)
+
+# CORS: permite que la página /Colacion de la app Base44 consuma el API público
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://dimangotogo.base44.app"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
 )
 
 # Panel de administración web (/admin)
@@ -137,6 +158,19 @@ async def webhook_handler(request: Request):
 
             logger.info(f"Mensaje de {msg.telefono}: {msg.texto}")
 
+            # ¿Es Ricardo? → Maximus, su gerente virtual. Va PRIMERO: antes de
+            # colación y antes de atención al cliente. Si MAXIMUS_OWNER_PHONES
+            # no está configurado, es_maximus() siempre es False y este bloque
+            # no existe para nadie.
+            if es_maximus(msg.telefono):
+                historial = await obtener_historial(msg.telefono)
+                respuesta = await responder_maximus(msg.texto, historial)
+                await guardar_mensaje(msg.telefono, "user", msg.texto)
+                await guardar_mensaje(msg.telefono, "assistant", respuesta)
+                await canal.enviar_mensaje(msg.telefono, respuesta)
+                logger.info(f"[MAXIMUS] {msg.telefono}: {msg.texto[:80]}")
+                continue
+
             # ¿Es un empleado registrado? → control de colación, no atención al cliente
             empleado = await buscar_empleado(msg.telefono)
             if empleado:
@@ -178,6 +212,51 @@ async def webhook_handler(request: Request):
     except Exception as e:
         logger.error(f"Error en webhook: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/telegram/webhook")
+async def telegram_webhook(request: Request):
+    """
+    Canal privado de Maximus por Telegram.
+
+    Aislado a propósito: no comparte nada con /webhook (WhatsApp). Si este
+    endpoint falla, la atención a clientes sigue intacta.
+    """
+    if not tg.configurado():
+        return {"status": "telegram no configurado"}
+
+    try:
+        body = await request.json()
+    except Exception:
+        return {"status": "ok"}
+
+    parseado = await tg.parsear_update(body)
+    if not parseado:
+        return {"status": "ok"}
+
+    chat_id, texto = parseado
+
+    # Modo setup: sin dueños configurados, el bot solo dice quién eres.
+    # Nunca entrega memoria a un desconocido.
+    if not tg.OWNER_CHAT_IDS:
+        await tg.enviar_mensaje(chat_id, tg.MENSAJE_SETUP.format(chat_id=chat_id))
+        logger.warning(f"[TELEGRAM] Modo setup — chat_id sin autorizar: {chat_id}")
+        return {"status": "setup"}
+
+    if not tg.es_owner(chat_id):
+        await tg.enviar_mensaje(chat_id, tg.MENSAJE_NO_AUTORIZADO)
+        logger.warning(f"[TELEGRAM] Acceso denegado a chat_id {chat_id}")
+        return {"status": "denegado"}
+
+    clave = f"tg:{chat_id}"
+    historial = await obtener_historial(clave)
+    respuesta = await responder_maximus(texto, historial)
+    await guardar_mensaje(clave, "user", texto)
+    await guardar_mensaje(clave, "assistant", respuesta)
+    await tg.enviar_mensaje(chat_id, respuesta)
+
+    logger.info(f"[MAXIMUS/TG] {chat_id}: {texto[:80]}")
+    return {"status": "ok"}
 
 
 @app.post("/api/pedido")

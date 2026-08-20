@@ -10,7 +10,7 @@ import os
 from datetime import datetime
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from sqlalchemy import String, Text, DateTime, select, Integer
+from sqlalchemy import String, Text, DateTime, select, Integer, Boolean, func
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -41,6 +41,22 @@ class Mensaje(Base):
     timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class EstadoConversacion(Base):
+    """Estado de cada conversación (ej: pausada para atención humana)."""
+    __tablename__ = "estado_conversaciones"
+
+    telefono: Mapped[str] = mapped_column(String(50), primary_key=True)
+    pausado: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class Contacto(Base):
+    """Nombre asociado a cada teléfono/ID (capturado de WhatsApp o puesto a mano)."""
+    __tablename__ = "contactos"
+
+    telefono: Mapped[str] = mapped_column(String(50), primary_key=True)
+    nombre: Mapped[str] = mapped_column(String(120))
+
+
 async def inicializar_db():
     """Crea las tablas si no existen."""
     async with engine.begin() as conn:
@@ -57,6 +73,23 @@ async def guardar_mensaje(telefono: str, role: str, content: str):
             timestamp=datetime.utcnow()
         )
         session.add(mensaje)
+        await session.commit()
+
+
+async def guardar_nombre(telefono: str, nombre: str):
+    """Guarda o actualiza el nombre asociado a un teléfono/ID."""
+    nombre = (nombre or "").strip()
+    if not nombre:
+        return
+    async with async_session() as session:
+        contacto = (await session.execute(
+            select(Contacto).where(Contacto.telefono == telefono)
+        )).scalars().first()
+        if contacto:
+            if contacto.nombre != nombre:
+                contacto.nombre = nombre
+        else:
+            session.add(Contacto(telefono=telefono, nombre=nombre))
         await session.commit()
 
 
@@ -98,4 +131,100 @@ async def limpiar_historial(telefono: str):
         mensajes = result.scalars().all()
         for msg in mensajes:
             await session.delete(msg)
+        await session.commit()
+
+
+# ════════════════════════════════════════════════════════════
+# Funciones para el panel de administración web
+# ════════════════════════════════════════════════════════════
+
+async def listar_conversaciones() -> list[dict]:
+    """
+    Lista todas las conversaciones con su último mensaje, total y estado de pausa.
+    Ordenadas de la más reciente a la más antigua.
+    """
+    async with async_session() as session:
+        # Agrupar por teléfono: total de mensajes y timestamp del último
+        resumen = (
+            select(
+                Mensaje.telefono,
+                func.count(Mensaje.id).label("total"),
+                func.max(Mensaje.timestamp).label("ultimo"),
+            )
+            .group_by(Mensaje.telefono)
+            .order_by(func.max(Mensaje.timestamp).desc())
+        )
+        filas = (await session.execute(resumen)).all()
+
+        # Cargar los estados de pausa una sola vez
+        estados = {
+            e.telefono: e.pausado
+            for e in (await session.execute(select(EstadoConversacion))).scalars().all()
+        }
+
+        # Cargar los nombres de contacto una sola vez
+        nombres = {
+            c.telefono: c.nombre
+            for c in (await session.execute(select(Contacto))).scalars().all()
+        }
+
+        conversaciones = []
+        for fila in filas:
+            ultimo = (await session.execute(
+                select(Mensaje)
+                .where(Mensaje.telefono == fila.telefono)
+                .order_by(Mensaje.timestamp.desc())
+                .limit(1)
+            )).scalars().first()
+            conversaciones.append({
+                "telefono": fila.telefono,
+                "nombre": nombres.get(fila.telefono, ""),
+                "total": fila.total,
+                "ultimo_timestamp": fila.ultimo.isoformat() if fila.ultimo else None,
+                "ultimo_mensaje": ultimo.content if ultimo else "",
+                "ultimo_role": ultimo.role if ultimo else "",
+                "pausado": estados.get(fila.telefono, False),
+            })
+        return conversaciones
+
+
+async def obtener_conversacion_completa(telefono: str, limite: int = 200) -> list[dict]:
+    """Recupera todos los mensajes de una conversación en orden cronológico."""
+    async with async_session() as session:
+        query = (
+            select(Mensaje)
+            .where(Mensaje.telefono == telefono)
+            .order_by(Mensaje.timestamp.asc())
+            .limit(limite)
+        )
+        mensajes = (await session.execute(query)).scalars().all()
+        return [
+            {
+                "role": m.role,
+                "content": m.content,
+                "timestamp": m.timestamp.isoformat(),
+            }
+            for m in mensajes
+        ]
+
+
+async def esta_pausada(telefono: str) -> bool:
+    """Indica si una conversación está pausada (atención humana activa)."""
+    async with async_session() as session:
+        estado = (await session.execute(
+            select(EstadoConversacion).where(EstadoConversacion.telefono == telefono)
+        )).scalars().first()
+        return bool(estado and estado.pausado)
+
+
+async def pausar_conversacion(telefono: str, pausado: bool):
+    """Pausa o reactiva el agente para una conversación específica."""
+    async with async_session() as session:
+        estado = (await session.execute(
+            select(EstadoConversacion).where(EstadoConversacion.telefono == telefono)
+        )).scalars().first()
+        if estado:
+            estado.pausado = pausado
+        else:
+            session.add(EstadoConversacion(telefono=telefono, pausado=pausado))
         await session.commit()
