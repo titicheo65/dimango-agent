@@ -29,6 +29,7 @@ from agent.colacion import (
 from agent.colacion_web import router as colacion_router
 from agent.maximus import es_maximus, responder as responder_maximus
 from agent import telegram_maximus as tg
+from agent.voz import sintetizar as sintetizar_voz
 
 load_dotenv()
 
@@ -168,6 +169,14 @@ async def webhook_handler(request: Request):
                 await guardar_mensaje(msg.telefono, "user", msg.texto)
                 await guardar_mensaje(msg.telefono, "assistant", respuesta)
                 await canal.enviar_mensaje(msg.telefono, respuesta)
+
+                # Si Ricardo mandó una nota de voz, se le contesta también en voz.
+                # El texto ya salió: si la síntesis falla, no se pierde nada.
+                if msg.fue_audio and hasattr(canal, "enviar_audio"):
+                    audio = await sintetizar_voz(respuesta)
+                    if audio:
+                        await canal.enviar_audio(msg.telefono, audio)
+
                 logger.info(f"[MAXIMUS] {msg.telefono}: {msg.texto[:80]}")
                 continue
 
@@ -234,7 +243,7 @@ async def telegram_webhook(request: Request):
     if not parseado:
         return {"status": "ok"}
 
-    chat_id, texto = parseado
+    chat_id, texto, fue_audio = parseado
 
     # Modo setup: sin dueños configurados, el bot solo dice quién eres.
     # Nunca entrega memoria a un desconocido.
@@ -254,6 +263,11 @@ async def telegram_webhook(request: Request):
     await guardar_mensaje(clave, "user", texto)
     await guardar_mensaje(clave, "assistant", respuesta)
     await tg.enviar_mensaje(chat_id, respuesta)
+
+    if fue_audio:
+        audio = await sintetizar_voz(respuesta)
+        if audio:
+            await tg.enviar_audio(chat_id, audio)
 
     logger.info(f"[MAXIMUS/TG] {chat_id}: {texto[:80]}")
     return {"status": "ok"}

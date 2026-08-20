@@ -78,6 +78,7 @@ class ProveedorMeta(ProveedorWhatsApp):
                                 mensaje_id=msg.get("id", ""),
                                 es_propio=False,
                                 nombre=nombres.get(remitente, ""),
+                                fue_audio=True,
                             ))
 
                     elif tipo == "image":
@@ -158,6 +159,51 @@ class ProveedorMeta(ProveedorWhatsApp):
             if r.status_code != 200:
                 logger.error(f"Error Meta API: {r.status_code} — {r.text}")
             return r.status_code == 200
+
+    async def enviar_audio(self, telefono: str, audio_mp3: bytes) -> bool:
+        """
+        Envía un MP3 como mensaje de audio. Dos pasos según la API de Meta:
+        subir el archivo para obtener un media_id, y luego enviar el mensaje.
+        Nunca lanza excepción: si falla, el llamador ya envió el texto.
+        """
+        if not self.access_token or not self.phone_number_id or not audio_mp3:
+            return False
+
+        base = f"https://graph.facebook.com/{self.api_version}/{self.phone_number_id}"
+        auth = {"Authorization": f"Bearer {self.access_token}"}
+
+        try:
+            async with httpx.AsyncClient(timeout=60) as client:
+                subida = await client.post(
+                    f"{base}/media",
+                    headers=auth,
+                    data={"messaging_product": "whatsapp", "type": "audio/mpeg"},
+                    files={"file": ("maximus.mp3", audio_mp3, "audio/mpeg")},
+                )
+                if subida.status_code != 200:
+                    logger.error(f"[VOZ] Subida a Meta falló: {subida.status_code} — {subida.text[:200]}")
+                    return False
+
+                media_id = subida.json().get("id")
+                if not media_id:
+                    return False
+
+                envio = await client.post(
+                    f"{base}/messages",
+                    headers={**auth, "Content-Type": "application/json"},
+                    json={
+                        "messaging_product": "whatsapp",
+                        "to": telefono,
+                        "type": "audio",
+                        "audio": {"id": media_id},
+                    },
+                )
+                if envio.status_code != 200:
+                    logger.error(f"[VOZ] Envío de audio falló: {envio.status_code} — {envio.text[:200]}")
+                return envio.status_code == 200
+        except Exception as e:
+            logger.error(f"[VOZ] Error enviando audio: {e}")
+            return False
 
     async def enviar_plantilla(
         self, telefono: str, plantilla: str, parametros: list[str], idioma: str = "es"

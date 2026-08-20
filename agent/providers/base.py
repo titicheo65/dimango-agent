@@ -19,6 +19,7 @@ class MensajeEntrante:
     mensaje_id: str     # ID único del mensaje
     es_propio: bool     # True si lo envió el agente (se ignora)
     nombre: str = ""    # Nombre de perfil del remitente (si el proveedor lo envía)
+    fue_audio: bool = False  # True si llegó como nota de voz (para responder en el mismo modo)
 
 
 class ProveedorWhatsApp(ABC):

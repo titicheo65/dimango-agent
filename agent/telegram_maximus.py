@@ -109,9 +109,28 @@ async def _descargar_voz(file_id: str) -> bytes | None:
         return None
 
 
-async def parsear_update(body: dict) -> tuple[str, str] | None:
+async def enviar_audio(chat_id: str | int, audio_mp3: bytes) -> bool:
+    """Envía un MP3 como mensaje de audio. Si falla, el texto ya salió antes."""
+    if not BOT_TOKEN or not audio_mp3:
+        return False
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            r = await client.post(
+                f"{API}/sendAudio",
+                data={"chat_id": str(chat_id), "title": "Maximus"},
+                files={"audio": ("maximus.mp3", audio_mp3, "audio/mpeg")},
+            )
+            if r.status_code != 200:
+                logger.error(f"[TELEGRAM] Envío de audio falló: {r.status_code}")
+            return r.status_code == 200
+    except Exception as e:
+        logger.error(f"[TELEGRAM] Error enviando audio: {e}")
+        return False
+
+
+async def parsear_update(body: dict) -> tuple[str, str, bool] | None:
     """
-    Convierte un update de Telegram en (chat_id, texto).
+    Convierte un update de Telegram en (chat_id, texto, fue_audio).
     Las notas de voz se transcriben con el mismo Groq Whisper que ya usa WhatsApp.
     Devuelve None si el update no trae nada que procesar.
     """
@@ -124,8 +143,10 @@ async def parsear_update(body: dict) -> tuple[str, str] | None:
         return None
 
     texto = (mensaje.get("text") or "").strip()
+    fue_audio = False
 
     if not texto and "voice" in mensaje:
+        fue_audio = True
         file_id = mensaje["voice"].get("file_id", "")
         audio = await _descargar_voz(file_id)
         if audio:
@@ -133,6 +154,7 @@ async def parsear_update(body: dict) -> tuple[str, str] | None:
             logger.info(f"[TELEGRAM] Nota de voz transcrita: {texto[:80]}")
 
     if not texto and "audio" in mensaje:
+        fue_audio = True
         file_id = mensaje["audio"].get("file_id", "")
         audio = await _descargar_voz(file_id)
         if audio:
@@ -141,7 +163,7 @@ async def parsear_update(body: dict) -> tuple[str, str] | None:
     if not texto:
         return None
 
-    return chat_id, texto
+    return chat_id, texto, fue_audio
 
 
 MENSAJE_SETUP = (
