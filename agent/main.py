@@ -99,10 +99,18 @@ async def lifespan(app: FastAPI):
     tarea_recordatorio_diario.cancel()
 
 
+# En producción la documentación de la API queda cerrada: el servicio está
+# expuesto a internet por ngrok y /docs enumera todos los endpoints sin pedir
+# clave. Para verla en desarrollo: ENVIRONMENT=development
+_dev = ENVIRONMENT == "development"
+
 app = FastAPI(
     title="AgentKit — WhatsApp AI Agent",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
+    docs_url="/docs" if _dev else None,
+    redoc_url="/redoc" if _dev else None,
+    openapi_url="/openapi.json" if _dev else None,
 )
 
 # CORS: permite que la página /Colacion de la app Base44 consuma el API público
