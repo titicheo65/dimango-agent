@@ -116,8 +116,11 @@ app = FastAPI(
 # CORS: permite que la página /Colacion de la app Base44 consuma el API público
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://dimangotogo.base44.app"],
-    allow_methods=["GET", "POST"],
+    # "null" es el Origin que manda un archivo abierto con file:// — es el
+    # cerebro visual de Maximus corriendo en el Mac de Ricardo. El endpoint
+    # /maximus/chat igual exige token: CORS no es la protección.
+    allow_origins=["https://dimangotogo.base44.app", "null"],
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -229,6 +232,50 @@ async def webhook_handler(request: Request):
     except Exception as e:
         logger.error(f"Error en webhook: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/maximus/chat")
+async def maximus_chat(request: Request):
+    """
+    Chat con Maximus desde el cerebro visual.
+
+    Protegido con MAXIMUS_CHAT_TOKEN. Devuelve la respuesta y los ids de las
+    notas que se usaron, para que el grafo pueda iluminarlas.
+    """
+    token_ok = os.getenv("MAXIMUS_CHAT_TOKEN", "")
+    if not token_ok:
+        raise HTTPException(status_code=503, detail="Chat no habilitado")
+
+    if request.headers.get("x-maximus-token", "") != token_ok:
+        raise HTTPException(status_code=401, detail="No autorizado")
+
+    try:
+        datos = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="JSON inválido")
+
+    mensaje = (datos.get("mensaje") or "").strip()
+    if not mensaje:
+        raise HTTPException(status_code=400, detail="Falta el mensaje")
+
+    sesion = f"web:{datos.get('sesion', 'cerebro')}"
+    historial = await obtener_historial(sesion)
+
+    notas = []
+    try:
+        from agent.maximus import _cerebro_atomico
+        c = _cerebro_atomico()
+        if c:
+            _, _, notas = c.contexto(mensaje)
+    except Exception:
+        pass
+
+    respuesta = await responder_maximus(mensaje, historial)
+    await guardar_mensaje(sesion, "user", mensaje)
+    await guardar_mensaje(sesion, "assistant", respuesta)
+
+    logger.info(f"[MAXIMUS/WEB] {mensaje[:70]}")
+    return {"respuesta": respuesta, "notas": notas}
 
 
 @app.post("/telegram/webhook")
