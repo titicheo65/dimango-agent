@@ -274,8 +274,21 @@ async def maximus_chat(request: Request):
     await guardar_mensaje(sesion, "user", mensaje)
     await guardar_mensaje(sesion, "assistant", respuesta)
 
+    # La voz viaja en la misma respuesta: una sola vuelta al servidor.
+    # Si la síntesis falla, el texto igual llega — la voz nunca hace perder
+    # una respuesta.
+    audio_b64 = ""
+    if datos.get("voz"):
+        try:
+            import base64
+            audio = await sintetizar_voz(respuesta)
+            if audio:
+                audio_b64 = base64.b64encode(audio).decode("ascii")
+        except Exception as e:
+            logger.error(f"[MAXIMUS/WEB] Falló la voz: {e}")
+
     logger.info(f"[MAXIMUS/WEB] {mensaje[:70]}")
-    return {"respuesta": respuesta, "notas": notas}
+    return {"respuesta": respuesta, "notas": notas, "audio": audio_b64}
 
 
 @app.post("/telegram/webhook")
