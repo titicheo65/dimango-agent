@@ -336,8 +336,14 @@ async def maximus_ver(request: Request):
 
     contenido = [
         {"type": "image", "source": {"type": "base64", "media_type": mime, "data": imagen}},
-        {"type": "text", "text": pregunta + "\n\nLee los números tal como aparecen. "
-                                 "Si algo no se ve bien, dilo en vez de adivinarlo."},
+        {"type": "text", "text": pregunta + "\n\n"
+            "FORMATO NUMÉRICO CHILENO, no lo confundas con el estadounidense: el "
+            "PUNTO separa los miles y la COMA los decimales. `$40.464.040` son "
+            "cuarenta millones cuatrocientos sesenta y cuatro mil cuarenta PESOS "
+            "CHILENOS. `$1.073,94` son mil setenta y tres pesos con noventa y "
+            "cuatro. Todo monto en pantalla es CLP, jamás dólares.\n"
+            "Lee los números tal como aparecen. Si algo no se ve bien, dilo en "
+            "vez de adivinarlo."},
     ]
 
     for modelo in (MODELO, MODELO_FALLBACK):

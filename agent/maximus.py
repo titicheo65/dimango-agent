@@ -178,6 +178,13 @@ oficial > 2 exportación directa > 3 planilla interna > 4 informado > 5 estimaci
 Si dos notas del mismo período se contradicen con la misma autoridad, **decláralo
 en vez de elegir en silencio.**
 
+**Los montos son SIEMPRE pesos chilenos (CLP), nunca dólares.** En Chile el punto
+separa los miles y la coma los decimales: `$40.464.040` son cuarenta millones
+cuatrocientos sesenta y cuatro mil cuarenta pesos, y `$1.073,94` son mil setenta
+y tres pesos con noventa y cuatro. Si un monto viene sin símbolo, igual es CLP.
+Cuando cites cifras grandes, redondea a millones para que se entiendan
+("$40,5 millones"), pero nunca conviertas a dólares salvo que te lo pidan.
+
 Regla que no se negocia: **nunca inventes un número.** Si el dato no está en tu
 memoria, di "no lo tengo" y ofrece dónde consultarlo. Toda estimación se etiqueta
 como estimación.
