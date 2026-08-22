@@ -15,6 +15,7 @@ falla, el mensaje de texto igual se envía.
 """
 
 import os
+import re
 import logging
 import asyncio
 
@@ -35,6 +36,30 @@ ELEVENLABS_MODEL = os.getenv("ELEVENLABS_MODEL", "eleven_multilingual_v2")
 LIMITE_CARACTERES = int(os.getenv("MAXIMUS_VOZ_MAX_CHARS", "1200"))
 
 
+# Palabras que el sintetizador lee en español pero se pronuncian de otra forma.
+# El orden importa: lo más largo primero, o "Mallplaza" quedaría como "Mollplaza".
+PRONUNCIACION = [
+    (r"\bMall\s*[Pp]laza\b", "Mol Plasa"),
+    (r"\bMallplaza\b", "Mol Plasa"),
+    (r"\bmallplaza\b", "mol plasa"),
+    (r"\bMall\b", "Moll"),
+    (r"\bmall\b", "moll"),
+    (r"\bWhatsApp\b", "Guatsáp"),
+    (r"\bwhatsapp\b", "guatsáp"),
+    (r"\bSII\b", "S I I"),
+    (r"\bDiMangoToGo\b", "DiMango Tu Gou"),
+    (r"\bDiMangoWorking\b", "DiMango Wérking"),
+    (r"\bToGo\b", "Tu Gou"),
+    (r"\bPlaza Oeste\b", "Plasa Oeste"),
+]
+
+
+def _pronunciar(texto: str) -> str:
+    for patron, reemplazo in PRONUNCIACION:
+        texto = re.sub(patron, reemplazo, texto)
+    return texto
+
+
 def _limpiar_para_voz(texto: str) -> str:
     """
     Saca el marcado que suena mal leído en voz alta.
@@ -44,7 +69,7 @@ def _limpiar_para_voz(texto: str) -> str:
     limpio = limpio.replace("—", ",").replace("·", ",")
     # Los guiones de lista al inicio de línea se leen como pausa, no como "guion"
     lineas = [l.lstrip("- ").strip() if l.strip().startswith("-") else l for l in limpio.split("\n")]
-    return "\n".join(l for l in lineas if l.strip())
+    return _pronunciar("\n".join(l for l in lineas if l.strip()))
 
 
 async def _sintetizar_edge(texto: str) -> bytes | None:
