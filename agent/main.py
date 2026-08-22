@@ -291,6 +291,72 @@ async def maximus_chat(request: Request):
     return {"respuesta": respuesta, "notas": notas, "audio": audio_b64}
 
 
+@app.post("/maximus/ver")
+async def maximus_ver(request: Request):
+    """
+    Maximus mira una imagen: una pantalla, una foto, un documento.
+
+    Sirve para leer DiMangoToGo o DiMangoWorking sin integrar nada: se le
+    muestra la pantalla y saca los números. La imagen NO se guarda en disco.
+    """
+    token_ok = os.getenv("MAXIMUS_CHAT_TOKEN", "")
+    if not token_ok:
+        raise HTTPException(status_code=503, detail="Chat no habilitado")
+    if request.headers.get("x-maximus-token", "") != token_ok:
+        raise HTTPException(status_code=401, detail="No autorizado")
+
+    try:
+        datos = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="JSON inválido")
+
+    imagen = datos.get("imagen") or ""
+    if "," in imagen:                      # viene como data:image/png;base64,....
+        imagen = imagen.split(",", 1)[1]
+    if not imagen:
+        raise HTTPException(status_code=400, detail="Falta la imagen")
+
+    mime = datos.get("mime", "image/png")
+    pregunta = (datos.get("pregunta") or "").strip() or \
+        "¿Qué estoy viendo? Si hay números, léelos y dime qué significan para el negocio."
+
+    from agent.maximus import construir_prompt_atomico, construir_system_prompt
+    atomico = construir_prompt_atomico(pregunta)
+    if atomico:
+        fija, variable = atomico
+        bloques = [
+            {"type": "text", "text": fija, "cache_control": {"type": "ephemeral"}},
+            {"type": "text", "text": variable},
+        ]
+    else:
+        bloques = [{"type": "text", "text": construir_system_prompt(),
+                    "cache_control": {"type": "ephemeral"}}]
+
+    from agent.maximus import client as cliente_maximus, MODELO, MODELO_FALLBACK
+
+    contenido = [
+        {"type": "image", "source": {"type": "base64", "media_type": mime, "data": imagen}},
+        {"type": "text", "text": pregunta + "\n\nLee los números tal como aparecen. "
+                                 "Si algo no se ve bien, dilo en vez de adivinarlo."},
+    ]
+
+    for modelo in (MODELO, MODELO_FALLBACK):
+        try:
+            r = await cliente_maximus.messages.create(
+                model=modelo, max_tokens=1200, system=bloques,
+                messages=[{"role": "user", "content": contenido}],
+            )
+            texto = r.content[0].text
+            logger.info(f"[MAXIMUS/VER] {modelo} — {len(imagen)} bytes de imagen")
+            return {"respuesta": texto}
+        except Exception as e:
+            logger.error(f"[MAXIMUS/VER] Falló con {modelo}: {e}")
+            if modelo == MODELO_FALLBACK:
+                raise HTTPException(status_code=502, detail=str(e)[:200])
+
+    raise HTTPException(status_code=502, detail="No pude analizar la imagen")
+
+
 @app.post("/telegram/webhook")
 async def telegram_webhook(request: Request):
     """
