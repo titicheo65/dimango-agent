@@ -334,16 +334,31 @@ async def maximus_ver(request: Request):
 
     from agent.maximus import client as cliente_maximus, MODELO, MODELO_FALLBACK
 
+    # Las instrucciones van ANTES de la imagen: puestas después, el modelo ya
+    # "leyó" los montos como dólares y la corrección llegaba tarde.
+    INSTRUCCION_MONEDA = (
+        "Estás mirando la pantalla de un negocio en CHILE. Antes de leer nada:\n\n"
+        "1. TODO monto está en PESOS CHILENOS (CLP). No existen dólares en estas "
+        "pantallas. La palabra 'dólar' o 'USD' NO debe aparecer en tu respuesta.\n"
+        "2. Formato chileno: el PUNTO separa MILES, la COMA separa DECIMALES.\n"
+        "   $40.464.040  =  cuarenta millones cuatrocientos sesenta y cuatro mil "
+        "cuarenta pesos.\n"
+        "   $1.073,94    =  mil setenta y tres pesos con noventa y cuatro.\n"
+        "   $159.919.975 =  ciento cincuenta y nueve millones novecientos "
+        "diecinueve mil novecientos setenta y cinco pesos.\n"
+        "3. Al citar un monto escribe siempre la palabra 'pesos' o el sufijo CLP. "
+        "Nunca el símbolo $ solo.\n"
+        "4. Para referencia: la venta mensual de este negocio ronda los 160 "
+        "millones de pesos, y un almuerzo cuesta entre 8.000 y 20.000 pesos. Si "
+        "un número que leíste no encaja con ese orden de magnitud, lo "
+        "interpretaste mal.\n\n"
+    )
+
     contenido = [
+        {"type": "text", "text": INSTRUCCION_MONEDA},
         {"type": "image", "source": {"type": "base64", "media_type": mime, "data": imagen}},
-        {"type": "text", "text": pregunta + "\n\n"
-            "FORMATO NUMÉRICO CHILENO, no lo confundas con el estadounidense: el "
-            "PUNTO separa los miles y la COMA los decimales. `$40.464.040` son "
-            "cuarenta millones cuatrocientos sesenta y cuatro mil cuarenta PESOS "
-            "CHILENOS. `$1.073,94` son mil setenta y tres pesos con noventa y "
-            "cuatro. Todo monto en pantalla es CLP, jamás dólares.\n"
-            "Lee los números tal como aparecen. Si algo no se ve bien, dilo en "
-            "vez de adivinarlo."},
+        {"type": "text", "text": pregunta + "\n\nLee los números tal como aparecen, "
+            "en pesos chilenos. Si algo no se ve bien, dilo en vez de adivinarlo."},
     ]
 
     for modelo in (MODELO, MODELO_FALLBACK):
