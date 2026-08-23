@@ -21,6 +21,7 @@ from agent.memory import (
     obtener_conversacion_completa,
     pausar_conversacion,
     guardar_mensaje,
+    es_privada,
 )
 from agent.providers import obtener_proveedor
 
@@ -75,6 +76,11 @@ async def api_listar_conversaciones(_: str = Depends(verificar_admin)):
 @router.get("/api/conversaciones/{telefono}")
 async def api_ver_conversacion(telefono: str, _: str = Depends(verificar_admin)):
     """Devuelve todos los mensajes de una conversación."""
+    # El panel es para atención al cliente. Las conversaciones de Ricardo con
+    # Maximus no se muestran acá aunque se pida el id a mano: ocultarlas de la
+    # lista no basta si la ruta directa igual las entrega.
+    if es_privada(telefono):
+        raise HTTPException(status_code=404, detail="No encontrada")
     return await obtener_conversacion_completa(telefono)
 
 

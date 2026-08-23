@@ -119,7 +119,11 @@ app.add_middleware(
     # "null" es el Origin que manda un archivo abierto con file:// — es el
     # cerebro visual de Maximus corriendo en el Mac de Ricardo. El endpoint
     # /maximus/chat igual exige token: CORS no es la protección.
-    allow_origins=["https://dimangotogo.base44.app", "null"],
+    # localhost:8899 es el mismo cerebro servido por http en vez de file://.
+    # Hace falta porque en file:// Chrome no recuerda el permiso del micrófono
+    # y lo pide en cada turno: no se puede conversar de corrido.
+    allow_origins=["https://dimangotogo.base44.app", "null",
+                   "http://localhost:8899", "http://127.0.0.1:8899"],
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
