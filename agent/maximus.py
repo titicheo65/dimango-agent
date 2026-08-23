@@ -176,12 +176,33 @@ async def ejecutar_herramienta(nombre: str, args: dict) -> str:
             d = await _http_json("https://mindicador.cl/api")
             if not d:
                 return "No pude consultar mindicador.cl."
+
+            from datetime import date
+            hoy = date.today()
             partes = []
             for k in ("dolar", "euro", "uf", "utm", "ipc"):
-                if k in d:
-                    v = d[k]
-                    partes.append(f"{v['nombre']}: {v['valor']:,.2f} ({v['fecha'][:10]})"
-                                  .replace(",", "@").replace(".", ",").replace("@", "."))
+                if k not in d:
+                    continue
+                v = d[k]
+                fecha = v["fecha"][:10]
+                monto = f"{v['valor']:,.2f}".replace(",", "@").replace(".", ",").replace("@", ".")
+                nota = ""
+                try:
+                    dias = (hoy - date.fromisoformat(fecha)).days
+                    if k in ("dolar", "euro") and dias > 0:
+                        nota = (f" — es el último publicado: el Banco Central no publica "
+                                f"dólar ni euro sábados, domingos ni festivos, y el "
+                                f"observado se calcula con el día hábil anterior. "
+                                f"Este valor rige hasta la próxima publicación.")
+                    elif k == "utm":
+                        nota = " — la UTM es mensual, no cambia hasta el próximo mes."
+                except ValueError:
+                    pass
+                partes.append(f"{v['nombre']}: ${monto} (dato del {fecha}){nota}")
+
+            partes.append(f"\nHoy es {hoy.isoformat()}. Si un valor trae fecha anterior, "
+                          "NO es un error ni un dato desactualizado: es el último vigente. "
+                          "Dilo así en vez de disculparte.")
             return "\n".join(partes)
 
         if nombre == "clima":
