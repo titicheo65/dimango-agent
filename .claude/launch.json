@@ -8,6 +8,12 @@
       "port": 3456
     },
     {
+      "name": "AgentKit (local)",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "uvicorn", "agent.main:app", "--host", "127.0.0.1", "--port", "8055"],
+      "port": 8055
+    },
+    {
       "name": "DimangoToGo (local)",
       "runtimeExecutable": "sh",
       "runtimeArgs": ["-c", "cd /Users/ricardovinet/github/dimango-src && PATH=$HOME/.local/node20/bin:$PATH npm run dev -- --port 5199"],

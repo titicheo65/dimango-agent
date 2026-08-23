@@ -120,6 +120,92 @@ def cargar_memoria() -> str:
     return _cache_texto
 
 
+# ── Herramientas: los datos vivos NO se guardan en memoria, se consultan ──
+# Capa 3 del diseño. Solo fuentes sin autenticación: las que la necesitan
+# (Gmail, Calendar, DiMangoToGo) viven donde están sus llaves, no acá.
+
+HERRAMIENTAS = [
+    {
+        "name": "indicadores_chile",
+        "description": (
+            "Valor de HOY del dólar observado, euro, UF, UTM, IPC y otros "
+            "indicadores económicos chilenos. Úsala SIEMPRE que te pregunten por "
+            "el precio del dólar, del euro, la UF o la UTM: son datos vivos que "
+            "cambian a diario y NO están en tu memoria. Fuente: mindicador.cl "
+            "(Banco Central)."
+        ),
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "clima",
+        "description": (
+            "Clima actual y del día para una ciudad. Úsala cuando pregunten por "
+            "el tiempo, la temperatura o si va a llover. Por defecto Arica."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "ciudad": {
+                    "type": "string",
+                    "enum": ["arica", "santiago", "madrid", "milano", "washington"],
+                    "description": "Ciudad. Si no la dicen, usa arica.",
+                }
+            },
+        },
+    },
+]
+
+CIUDADES = {
+    "arica": (-18.4783, -70.3126), "santiago": (-33.4489, -70.6693),
+    "madrid": (40.4168, -3.7038), "milano": (45.4642, 9.1900),
+    "washington": (38.9072, -77.0369),
+}
+
+
+async def _http_json(url: str):
+    import httpx
+    async with httpx.AsyncClient(timeout=20) as c:
+        r = await c.get(url)
+        return r.json() if r.status_code == 200 else None
+
+
+async def ejecutar_herramienta(nombre: str, args: dict) -> str:
+    """Devuelve texto plano. Si la fuente falla, lo dice: no inventa."""
+    try:
+        if nombre == "indicadores_chile":
+            d = await _http_json("https://mindicador.cl/api")
+            if not d:
+                return "No pude consultar mindicador.cl."
+            partes = []
+            for k in ("dolar", "euro", "uf", "utm", "ipc"):
+                if k in d:
+                    v = d[k]
+                    partes.append(f"{v['nombre']}: {v['valor']:,.2f} ({v['fecha'][:10]})"
+                                  .replace(",", "@").replace(".", ",").replace("@", "."))
+            return "\n".join(partes)
+
+        if nombre == "clima":
+            ciudad = (args.get("ciudad") or "arica").lower()
+            lat, lon = CIUDADES.get(ciudad, CIUDADES["arica"])
+            d = await _http_json(
+                f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}"
+                "&current=temperature_2m,relative_humidity_2m,weather_code"
+                "&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max"
+                "&timezone=auto&forecast_days=1")
+            if not d:
+                return "No pude consultar el clima."
+            c, dia = d["current"], d["daily"]
+            return (f"{ciudad.capitalize()}: {c['temperature_2m']}°C ahora, "
+                    f"humedad {c['relative_humidity_2m']}%. "
+                    f"Hoy mínima {dia['temperature_2m_min'][0]}° y máxima "
+                    f"{dia['temperature_2m_max'][0]}°, "
+                    f"probabilidad de lluvia {dia['precipitation_probability_max'][0]}%.")
+    except Exception as e:
+        logger.error(f"[MAXIMUS] Herramienta {nombre} falló: {e}")
+        return f"La consulta falló: {e}"
+    return f"Herramienta desconocida: {nombre}"
+
+
 def contexto_fecha() -> str:
     ahora = datetime.now(TZ_CHILE)
     return (
@@ -236,18 +322,41 @@ async def responder(mensaje: str, historial: list[dict]) -> str:
 
     for modelo in (MODELO, MODELO_FALLBACK):
         try:
-            respuesta = await client.messages.create(
-                model=modelo,
-                max_tokens=1500,
-                system=system_bloques,
-                messages=mensajes,
-            )
-            texto = respuesta.content[0].text
-            logger.info(
-                f"[MAXIMUS] {modelo} — {respuesta.usage.input_tokens} in / "
-                f"{respuesta.usage.output_tokens} out"
-            )
-            return texto
+            # Hasta dos vueltas: la primera puede pedir una herramienta, la
+            # segunda responde con el dato ya en mano. Más vueltas serían un
+            # bucle en un canal de chat, y no vale la pena.
+            for _ in range(2):
+                respuesta = await client.messages.create(
+                    model=modelo,
+                    max_tokens=1500,
+                    system=system_bloques,
+                    tools=HERRAMIENTAS,
+                    messages=mensajes,
+                )
+                logger.info(
+                    f"[MAXIMUS] {modelo} — {respuesta.usage.input_tokens} in / "
+                    f"{respuesta.usage.output_tokens} out — {respuesta.stop_reason}"
+                )
+
+                if respuesta.stop_reason != "tool_use":
+                    partes = [b.text for b in respuesta.content if b.type == "text"]
+                    return "\n".join(partes).strip() or "No supe qué responder."
+
+                mensajes.append({"role": "assistant", "content": respuesta.content})
+                resultados = []
+                for bloque in respuesta.content:
+                    if bloque.type == "tool_use":
+                        salida = await ejecutar_herramienta(bloque.name, bloque.input or {})
+                        logger.info(f"[MAXIMUS] herramienta {bloque.name} → {salida[:70]}")
+                        resultados.append({
+                            "type": "tool_result",
+                            "tool_use_id": bloque.id,
+                            "content": salida,
+                        })
+                mensajes.append({"role": "user", "content": resultados})
+
+            return "Me quedé dando vueltas consultando datos. Pregúntame de nuevo."
+
         except Exception as e:
             logger.error(f"[MAXIMUS] Falló con {modelo}: {e}")
             if modelo == MODELO_FALLBACK:
