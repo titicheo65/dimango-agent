@@ -153,7 +153,40 @@ HERRAMIENTAS = [
             },
         },
     },
+    {
+        "name": "ventas_dimango",
+        "description": (
+            "Ventas reales de DiMangoToGo: monto total, medios de pago, "
+            "productos vendidos con cantidad y monto, y stock por producto y "
+            "local (solo productos con control de stock activado). Úsala "
+            "SIEMPRE que pregunten cuánto se vendió, qué se vendió, cuánto "
+            "stock queda, o pidan un número de venta de hoy o de un rango de "
+            "fechas — son datos vivos, no están en tu memoria. Por defecto: "
+            "hoy, ambos locales."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "fecha_inicio": {
+                    "type": "string",
+                    "description": "YYYY-MM-DD. Si no la dicen, usa hoy.",
+                },
+                "fecha_fin": {
+                    "type": "string",
+                    "description": "YYYY-MM-DD. Si no la dicen, igual a fecha_inicio.",
+                },
+                "local": {
+                    "type": "string",
+                    "enum": ["playa", "mall"],
+                    "description": "Si no lo dicen, trae ambos locales.",
+                },
+            },
+        },
+    },
 ]
+
+DIMANGOTOGO_URL = "https://dimangotogo.base44.app/functions/maximusVentas"
+DIMANGOTOGO_SECRET = os.getenv("DIMANGOTOGO_MAXIMUS_SECRET", "")
 
 CIUDADES = {
     "arica": (-18.4783, -70.3126), "santiago": (-33.4489, -70.6693),
@@ -221,6 +254,55 @@ async def ejecutar_herramienta(nombre: str, args: dict) -> str:
                     f"Hoy mínima {dia['temperature_2m_min'][0]}° y máxima "
                     f"{dia['temperature_2m_max'][0]}°, "
                     f"probabilidad de lluvia {dia['precipitation_probability_max'][0]}%.")
+
+        if nombre == "ventas_dimango":
+            if not DIMANGOTOGO_SECRET:
+                return ("No puedo consultar DiMangoToGo: falta DIMANGOTOGO_MAXIMUS_SECRET "
+                        "en el .env del servidor. Avísale a Ricardo.")
+            import httpx
+            payload = {k: args[k] for k in ("fecha_inicio", "fecha_fin", "local") if args.get(k)}
+            try:
+                async with httpx.AsyncClient(timeout=20) as c:
+                    r = await c.post(
+                        DIMANGOTOGO_URL,
+                        json=payload,
+                        headers={"x-maximus-secret": DIMANGOTOGO_SECRET},
+                    )
+            except httpx.RequestError as e:
+                return f"No pude conectar con DiMangoToGo: {e}"
+            if r.status_code != 200:
+                return f"DiMangoToGo respondió {r.status_code}: {r.text[:300]}"
+            d = r.json()
+            rango, resumen = d["rango"], d["resumen"]
+            partes = [
+                f"Ventas {rango['fecha_inicio']} a {rango['fecha_fin']} "
+                f"({rango['local']}): {resumen['total_ventas']} ventas, "
+                f"${resumen['monto_total']:,.0f} totales, "
+                f"${resumen['propinas_total']:,.0f} en propinas."
+                .replace(",", "."),
+            ]
+            if resumen.get("por_local"):
+                for loc, v in resumen["por_local"].items():
+                    partes.append(f"  {loc}: {v['ventas']} ventas, ${v['monto']:,.0f}".replace(",", "."))
+            if resumen.get("por_medio_pago"):
+                for mp, monto in resumen["por_medio_pago"].items():
+                    partes.append(f"  {mp}: ${monto:,.0f}".replace(",", "."))
+            top = d.get("productos_vendidos", [])[:15]
+            if top:
+                partes.append("\nProductos más vendidos:")
+                for p in top:
+                    partes.append(f"  {p['cantidad']}x {p['nombre']} — ${p['monto']:,.0f}".replace(",", "."))
+            stock = d.get("stock", [])
+            if stock:
+                partes.append("\nStock con control activo:")
+                for s in stock:
+                    ubic = []
+                    if s.get("playa"):
+                        ubic.append(f"Playa {s['playa']['cantidad']} (mín. {s['playa']['minimo']})")
+                    if s.get("mall"):
+                        ubic.append(f"Mall {s['mall']['cantidad']} (mín. {s['mall']['minimo']})")
+                    partes.append(f"  {s['nombre']}: {', '.join(ubic)}")
+            return "\n".join(partes)
     except Exception as e:
         logger.error(f"[MAXIMUS] Herramienta {nombre} falló: {e}")
         return f"La consulta falló: {e}"
