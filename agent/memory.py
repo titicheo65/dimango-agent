@@ -27,18 +27,19 @@ async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit
 
 # ── Historial privado ─────────────────────────────────────────────────
 # Lo que Ricardo habla con Maximus —por el cerebro o por WhatsApp— no es
-# atención al cliente: son sueldos, márgenes y decisiones del negocio. Vive en
-# OTRA base de datos, no en otra tabla ni tras un filtro. El panel /admin
-# consulta el engine de clientes, así que no puede mostrar esto ni por error,
-# ni aunque mañana alguien agregue una consulta nueva y olvide filtrar.
-PRIVADO_URL = os.getenv("MAXIMUS_DB_URL", "sqlite+aiosqlite:///./maximus_privado.db")
-if PRIVADO_URL.startswith("postgresql://"):
-    PRIVADO_URL = PRIVADO_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
-
-engine_privado = create_async_engine(PRIVADO_URL, echo=False)
-session_privada = async_sessionmaker(engine_privado, class_=AsyncSession, expire_on_commit=False)
-
-
+# atención al cliente: son sueldos, márgenes y decisiones del negocio, y no
+# tiene por qué aparecer en el panel junto a los chats de clientes.
+#
+# Se marca acá, en un solo lugar, y el panel lo excluye. Los mensajes siguen
+# guardándose igual —Maximus necesita su historial para tener contexto—, pero
+# /admin no los lista ni los entrega.
+#
+# Hubo una versión de esto que los guardaba en una base separada. Era más
+# sólida (imposible de exponer por olvido) pero abría un segundo motor SQLite
+# al arrancar, y el agente no levantó en el Windows de producción. Entre una
+# garantía teórica y un servidor que arranca, gana el servidor: la separación
+# física queda pendiente para probarla con calma, no un domingo con los
+# locales operando.
 def es_privada(telefono: str) -> bool:
     """¿Esta conversación es de Ricardo con Maximus, y no atención al cliente?"""
     if (telefono or "").startswith("web:"):
@@ -48,11 +49,6 @@ def es_privada(telefono: str) -> bool:
         return es_maximus(telefono)       # su WhatsApp — misma regla, un solo lugar
     except Exception:
         return False                      # ante la duda, se trata como cliente
-
-
-def _sesion_de(telefono: str):
-    """Elige la base según de quién sea la conversación."""
-    return session_privada if es_privada(telefono) else async_session
 
 
 class Base(DeclarativeBase):
@@ -87,16 +83,14 @@ class Contacto(Base):
 
 
 async def inicializar_db():
-    """Crea las tablas si no existen, en las dos bases."""
+    """Crea las tablas si no existen."""
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    async with engine_privado.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
 
 async def guardar_mensaje(telefono: str, role: str, content: str):
     """Guarda un mensaje en el historial de conversación."""
-    async with _sesion_de(telefono)() as session:
+    async with async_session() as session:
         mensaje = Mensaje(
             telefono=telefono,
             role=role,
@@ -135,7 +129,7 @@ async def obtener_historial(telefono: str, limite: int = 20) -> list[dict]:
     Returns:
         Lista de diccionarios con role y content
     """
-    async with _sesion_de(telefono)() as session:
+    async with async_session() as session:
         query = (
             select(Mensaje)
             .where(Mensaje.telefono == telefono)
@@ -156,7 +150,7 @@ async def obtener_historial(telefono: str, limite: int = 20) -> list[dict]:
 
 async def limpiar_historial(telefono: str):
     """Borra todo el historial de una conversación."""
-    async with _sesion_de(telefono)() as session:
+    async with async_session() as session:
         query = select(Mensaje).where(Mensaje.telefono == telefono)
         result = await session.execute(query)
         mensajes = result.scalars().all()
@@ -187,10 +181,9 @@ async def listar_conversaciones() -> list[dict]:
         )
         filas = (await session.execute(resumen)).all()
 
-        # Segundo cerrojo. Las conversaciones privadas ya viven en otra base y no
-        # deberían aparecer acá nunca — pero las que se guardaron ANTES de esa
-        # separación siguen en esta tabla. Este filtro las oculta del panel aunque
-        # todavía no se hayan migrado.
+        # El panel es para atención al cliente: lo que Ricardo habla con Maximus
+        # no se lista. Va acá y no en la consulta para que aplique también a los
+        # mensajes ya guardados, sin tener que migrar nada.
         filas = [f for f in filas if not es_privada(f.telefono)]
 
         # Cargar los estados de pausa una sola vez
