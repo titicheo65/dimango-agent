@@ -276,9 +276,9 @@ HERRAMIENTAS = [
         "description": (
             "Guarda algo de la vida de Ricardo — no es de DiMango. Úsala "
             "cuando cuente algo de su día, algo que quiere mejorar, una "
-            "idea suelta, o te pida que le recuerdes algo a una hora "
-            "concreta. Vuelve a aparecer sola en conversaciones futuras, no "
-            "hace falta que la pidan."
+            "idea suelta, te pida que le recuerdes algo a una hora concreta, "
+            "o te dé una tarea (algo que hacer, sin hora fija). Vuelve a "
+            "aparecer sola en conversaciones futuras, no hace falta que la pidan."
         ),
         "input_schema": {
             "type": "object",
@@ -289,11 +289,13 @@ HERRAMIENTAS = [
                 },
                 "categoria": {
                     "type": "string",
-                    "enum": ["nota", "mejora", "recordatorio"],
+                    "enum": ["nota", "mejora", "recordatorio", "tarea"],
                     "description": (
                         "'nota' para algo del día a día, 'mejora' para algo que "
                         "quiere trabajar en sí mismo, 'recordatorio' si pidió que "
-                        "le avises a una hora concreta. Si no queda claro, usa 'nota'."
+                        "le avises a una hora concreta, 'tarea' si es algo que hay "
+                        "que hacer pero sin hora fija (un pendiente). Si no queda "
+                        "claro, usa 'nota'."
                     ),
                 },
                 "recordar_en": {
@@ -310,13 +312,13 @@ HERRAMIENTAS = [
     },
     {
         "name": "listar_notas_personales",
-        "description": "Lista las notas, mejoras y recordatorios personales activos de Ricardo.",
+        "description": "Lista las notas, mejoras, recordatorios y tareas personales activos de Ricardo.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "categoria": {
                     "type": "string",
-                    "enum": ["nota", "mejora", "recordatorio"],
+                    "enum": ["nota", "mejora", "recordatorio", "tarea"],
                     "description": "Si no la dicen, trae todas las categorías.",
                 },
             },
@@ -325,7 +327,7 @@ HERRAMIENTAS = [
     {
         "name": "cerrar_nota_personal",
         "description": (
-            "Marca una nota, mejora o recordatorio personal como cumplido. "
+            "Marca una nota, mejora, recordatorio o tarea personal como cumplido. "
             "Úsala cuando Ricardo diga 'ya lo hice', 'olvídalo', o 'listo con eso'."
         ),
         "input_schema": {
@@ -568,7 +570,7 @@ async def ejecutar_herramienta(nombre: str, args: dict) -> str:
             notas = await listar_notas(categoria)
             if not notas:
                 return "No tienes notas personales activas."
-            etq = {"nota": "📝", "mejora": "🎯", "recordatorio": "⏰"}
+            etq = {"nota": "📝", "mejora": "🎯", "recordatorio": "⏰", "tarea": "☐"}
             partes = ["Notas personales activas:"]
             for n in notas:
                 cuando = f" ({n.recordar_en.strftime('%d-%b %H:%M')})" if n.recordar_en else ""

@@ -18,7 +18,7 @@ from agent.memory import Base, async_session, engine
 
 logger = logging.getLogger("agentkit")
 
-CATEGORIAS = ("nota", "mejora", "recordatorio")
+CATEGORIAS = ("nota", "mejora", "recordatorio", "tarea")
 
 
 class NotaPersonal(Base):
@@ -26,7 +26,7 @@ class NotaPersonal(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     contenido: Mapped[str] = mapped_column(Text)
-    categoria: Mapped[str] = mapped_column(String(20), default="nota")  # nota | mejora | recordatorio
+    categoria: Mapped[str] = mapped_column(String(20), default="nota")  # nota | mejora | recordatorio | tarea
     estado: Mapped[str] = mapped_column(String(20), default="activa")  # activa | cumplida | archivada
     creado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     recordar_en: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # solo si categoria=recordatorio
@@ -83,7 +83,7 @@ async def contexto_notas_recientes(dias_notas: int = 200, max_items: int = 12) -
         return ""
     lineas = []
     for n in activas:
-        etiqueta = {"nota": "📝", "mejora": "🎯", "recordatorio": "⏰"}.get(n.categoria, "📝")
+        etiqueta = {"nota": "📝", "mejora": "🎯", "recordatorio": "⏰", "tarea": "☐"}.get(n.categoria, "📝")
         cuando = f" (para {n.recordar_en.strftime('%d-%b %H:%M')})" if n.recordar_en else ""
         lineas.append(f"{etiqueta} {n.contenido}{cuando}")
     return (
