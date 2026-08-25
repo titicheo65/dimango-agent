@@ -11,7 +11,7 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
@@ -344,7 +344,12 @@ async def maximus_estado_locales(request: Request):
         )
         return {"ventas_hoy": base["monto"], "num_ventas": base["ventas"], "stock_bajo_minimo": bajo_minimo}
 
-    return {"playa": resumen("playa"), "mall": resumen("mall")}
+    # sin no-store, el navegador puede repetir para siempre un 404 viejo de
+    # antes del despliegue — pasó en producción el 25-ago, no es teórico.
+    return JSONResponse(
+        {"playa": resumen("playa"), "mall": resumen("mall")},
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.post("/maximus/ver")
