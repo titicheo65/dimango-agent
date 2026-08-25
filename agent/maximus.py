@@ -376,15 +376,26 @@ HERRAMIENTAS = [
     {
         "name": "bodega_dimango",
         "description": (
-            "Bodega general de DiMangoWorking: valorización del inventario "
-            "por bodega, e ítems bajo stock mínimo agrupados por proveedor "
-            "— la base para armar el pedido a proveedores. Úsala cuando "
-            "pregunten qué hay que pedir, a qué proveedor, cuánto vale el "
-            "inventario, o qué se está por acabar en bodega."
+            "Bodega general de DiMangoWorking: costo y stock de un insumo "
+            "puntual (buscar), valorización del inventario por bodega, e "
+            "ítems bajo stock mínimo agrupados por proveedor — la base "
+            "para armar el pedido a proveedores. Úsala cuando pregunten "
+            "cuánto cuesta o cuánto stock hay de un insumo (pechuga, "
+            "harina, etc.), qué hay que pedir, a qué proveedor, cuánto "
+            "vale el inventario, o qué se está por acabar."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
+                "buscar": {
+                    "type": "string",
+                    "description": (
+                        "Nombre o parte del nombre de un insumo puntual, ej: "
+                        "'pechuga', 'harina'. Si lo mandas, la respuesta es SOLO "
+                        "ese insumo (costo, stock, proveedor) — no la valorización "
+                        "completa ni los bajo mínimo."
+                    ),
+                },
                 "bodega": {
                     "type": "string",
                     "description": "Ej: 'Bodega 1', 'Camara -18', 'Mall'. Si no la dicen, trae todas.",
@@ -687,7 +698,7 @@ async def ejecutar_herramienta(nombre: str, args: dict) -> str:
                 return ("No puedo consultar DimangoWorking: falta DIMANGOWORKING_MAXIMUS_SECRET "
                         "en el .env del servidor. Avísale a Ricardo.")
             import httpx
-            payload = {k: args[k] for k in ("bodega", "solo_bajo_minimo") if args.get(k) is not None}
+            payload = {k: args[k] for k in ("buscar", "bodega", "solo_bajo_minimo") if args.get(k) is not None}
             try:
                 async with httpx.AsyncClient(timeout=25) as c:
                     r = await c.post(
@@ -700,6 +711,18 @@ async def ejecutar_herramienta(nombre: str, args: dict) -> str:
             if r.status_code != 200:
                 return f"DimangoWorking respondió {r.status_code}: {r.text[:300]}"
             d = r.json()
+
+            if "encontrados" in d:
+                items = d["encontrados"]
+                if not items:
+                    return f"No encontré ningún insumo que coincida con \"{d['busqueda']}\"."
+                partes = [f"Encontrado{'s' if len(items)>1 else ''} para \"{d['busqueda']}\":"]
+                for it in items:
+                    costo = f"${it['costo_unitario']:,.0f}/{it['unidad']}".replace(",", ".") if it.get('costo_unitario') is not None else "sin costo cargado"
+                    prov = f" — proveedor: {it['proveedor_1']}" if it.get('proveedor_1') else ""
+                    partes.append(f"  {it['item']} ({it['bodega']}): {costo}, stock {it['stock_real']} {it['unidad']}{prov}")
+                return "\n".join(partes)
+
             partes = []
             if d.get("valorizacion"):
                 v = d["valorizacion"]
