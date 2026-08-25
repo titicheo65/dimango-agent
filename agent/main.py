@@ -305,6 +305,48 @@ async def maximus_chat(request: Request):
     return {"respuesta": respuesta, "notas": notas, "audio": audio_b64}
 
 
+@app.get("/maximus/estado-locales")
+async def maximus_estado_locales(request: Request):
+    """
+    Ventas de hoy y alertas de stock por local, para el panel del cerebro.
+
+    El cerebro (HTML estático, corre en el navegador) nunca ve el secreto
+    de DiMangoToGo — ese secreto vive solo acá, en el servidor. El cerebro
+    solo tiene el token de chat, que ya usa para /maximus/chat.
+    """
+    token_ok = os.getenv("MAXIMUS_CHAT_TOKEN", "")
+    if not token_ok or request.headers.get("x-maximus-token", "") != token_ok:
+        raise HTTPException(status_code=401, detail="No autorizado")
+
+    from agent.maximus import DIMANGOTOGO_URL, DIMANGOTOGO_SECRET
+    if not DIMANGOTOGO_SECRET:
+        raise HTTPException(status_code=503, detail="DiMangoToGo no configurado")
+
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=20) as c:
+            r = await c.post(DIMANGOTOGO_URL, json={}, headers={"x-maximus-secret": DIMANGOTOGO_SECRET})
+        if r.status_code != 200:
+            raise HTTPException(status_code=502, detail=f"DiMangoToGo respondió {r.status_code}")
+        d = r.json()
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=502, detail=f"No se pudo conectar con DiMangoToGo: {e}")
+
+    por_local = d.get("resumen", {}).get("por_local", {})
+    stock = d.get("stock", [])
+
+    def resumen(local: str) -> dict:
+        base = por_local.get(local, {"monto": 0, "ventas": 0})
+        bajo_minimo = sum(
+            1 for s in stock
+            if s.get(local) and s[local]["cantidad"] is not None and s[local]["minimo"] is not None
+            and s[local]["cantidad"] < s[local]["minimo"]
+        )
+        return {"ventas_hoy": base["monto"], "num_ventas": base["ventas"], "stock_bajo_minimo": bajo_minimo}
+
+    return {"playa": resumen("playa"), "mall": resumen("mall")}
+
+
 @app.post("/maximus/ver")
 async def maximus_ver(request: Request):
     """
