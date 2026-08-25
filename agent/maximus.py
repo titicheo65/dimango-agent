@@ -676,16 +676,28 @@ def construir_system_prompt() -> str:
     return _encabezado() + "\n\n===== TU MEMORIA =====\n\n" + memoria
 
 
-async def responder(mensaje: str, historial: list[dict]) -> str:
+async def responder(
+    mensaje: str, historial: list[dict],
+    imagen_b64: str = "", imagen_mime: str = "",
+) -> str:
     """
-    Genera la respuesta de Maximus. Misma firma que brain.generar_respuesta,
-    para que main.py pueda enrutar sin cambiar nada más.
+    Genera la respuesta de Maximus. Misma firma que brain.generar_respuesta
+    (más imagen_b64/imagen_mime, opcionales), para que main.py pueda enrutar
+    sin cambiar nada más.
     """
     if not mensaje or len(mensaje.strip()) < 2:
         return "¿Me repites? No me llegó nada legible."
 
     mensajes = [{"role": m["role"], "content": m["content"]} for m in historial]
-    mensajes.append({"role": "user", "content": mensaje})
+    if imagen_b64:
+        mensajes.append({"role": "user", "content": [
+            {"type": "image", "source": {
+                "type": "base64", "media_type": imagen_mime or "image/jpeg", "data": imagen_b64,
+            }},
+            {"type": "text", "text": mensaje},
+        ]})
+    else:
+        mensajes.append({"role": "user", "content": mensaje})
 
     from agent.notas_personales import contexto_notas_recientes
     notas_ctx = await contexto_notas_recientes()

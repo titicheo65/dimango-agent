@@ -190,7 +190,10 @@ async def webhook_handler(request: Request):
             # no existe para nadie.
             if es_maximus(msg.telefono):
                 historial = await obtener_historial(msg.telefono)
-                respuesta = await responder_maximus(msg.texto, historial)
+                respuesta = await responder_maximus(
+                    msg.texto, historial,
+                    imagen_b64=msg.imagen_b64, imagen_mime=msg.imagen_mime,
+                )
                 await guardar_mensaje(msg.telefono, "user", msg.texto)
                 await guardar_mensaje(msg.telefono, "assistant", respuesta)
                 await canal.enviar_mensaje(msg.telefono, respuesta)

@@ -20,6 +20,8 @@ class MensajeEntrante:
     es_propio: bool     # True si lo envió el agente (se ignora)
     nombre: str = ""    # Nombre de perfil del remitente (si el proveedor lo envía)
     fue_audio: bool = False  # True si llegó como nota de voz (para responder en el mismo modo)
+    imagen_b64: str = ""     # Foto adjunta, en base64 (vacío si no hay foto)
+    imagen_mime: str = ""    # image/jpeg, image/png, etc.
 
 
 class ProveedorWhatsApp(ABC):

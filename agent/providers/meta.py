@@ -1,6 +1,7 @@
 # agent/providers/meta.py — Adaptador para Meta WhatsApp Cloud API
 # Generado por AgentKit
 
+import base64
 import os
 import logging
 import httpx
@@ -86,7 +87,31 @@ class ProveedorMeta(ProveedorWhatsApp):
                         # lo archivamos en Google Drive y confirmamos. NO pasa por Claude.
                         if es_numero_autorizado(remitente):
                             await self._procesar_comprobante(msg, remitente)
-                        # Imágenes de otros números se ignoran (no se generan mensajes)
+                            continue
+
+                        # De cualquier otro número, la foto sí pasa por Claude —
+                        # Maximus la mira. Import acá adentro, no arriba: providers/
+                        # no debe depender de agent.maximus al cargar el módulo.
+                        from agent.maximus import es_maximus
+                        if not es_maximus(remitente):
+                            continue  # fotos de clientes: se ignoran, no hay flujo para eso
+
+                        imagen = msg.get("image", {})
+                        media_id = imagen.get("id", "")
+                        mime = imagen.get("mime_type", "image/jpeg")
+                        imagen_bytes = await self._descargar_media(media_id)
+                        if not imagen_bytes:
+                            continue
+
+                        mensajes.append(MensajeEntrante(
+                            telefono=remitente,
+                            texto=imagen.get("caption", "").strip() or "¿Qué ves en esta foto?",
+                            mensaje_id=msg.get("id", ""),
+                            es_propio=False,
+                            nombre=nombres.get(remitente, ""),
+                            imagen_b64=base64.b64encode(imagen_bytes).decode("ascii"),
+                            imagen_mime=mime,
+                        ))
         return mensajes
 
     async def _procesar_comprobante(self, msg: dict, remitente: str) -> None:
