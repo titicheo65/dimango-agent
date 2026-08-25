@@ -183,9 +183,46 @@ HERRAMIENTAS = [
             },
         },
     },
+    {
+        "name": "checklist_dimango",
+        "description": (
+            "Insumos a reponer según lo vendido — mismo cálculo que la "
+            "pantalla /Checklist de DiMangoToGo (venta × receta). Úsala "
+            "cuando pregunten qué pedir, qué reponer, o cuánto insumo se "
+            "consumió, por área (COCINA/BAR/PASTELERIA/DESPACHO) y por "
+            "local. También devuelve qué % de lo vendido tiene receta "
+            "vinculada y qué productos NO la tienen — sin receta, esos "
+            "insumos no se están contando, dilo si preguntan por qué falta "
+            "algo. Por defecto: hoy, Playa, todas las áreas."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "fecha_inicio": {
+                    "type": "string",
+                    "description": "YYYY-MM-DD. Si no la dicen, usa hoy.",
+                },
+                "fecha_fin": {
+                    "type": "string",
+                    "description": "YYYY-MM-DD. Si no la dicen, igual a fecha_inicio.",
+                },
+                "local": {
+                    "type": "string",
+                    "enum": ["playa", "mall"],
+                    "description": "Si no lo dicen, usa playa.",
+                },
+                "area": {
+                    "type": "string",
+                    "enum": ["COCINA", "BAR", "PASTELERIA", "DESPACHO"],
+                    "description": "Si no la dicen, trae todas las áreas.",
+                },
+            },
+        },
+    },
 ]
 
 DIMANGOTOGO_URL = "https://dimangotogo.base44.app/functions/maximusVentas"
+DIMANGOTOGO_CHECKLIST_URL = "https://dimangotogo.base44.app/functions/maximusChecklist"
 DIMANGOTOGO_SECRET = os.getenv("DIMANGOTOGO_MAXIMUS_SECRET", "")
 
 CIUDADES = {
@@ -302,6 +339,53 @@ async def ejecutar_herramienta(nombre: str, args: dict) -> str:
                     if s.get("mall"):
                         ubic.append(f"Mall {s['mall']['cantidad']} (mín. {s['mall']['minimo']})")
                     partes.append(f"  {s['nombre']}: {', '.join(ubic)}")
+            return "\n".join(partes)
+
+        if nombre == "checklist_dimango":
+            if not DIMANGOTOGO_SECRET:
+                return ("No puedo consultar el checklist: falta DIMANGOTOGO_MAXIMUS_SECRET "
+                        "en el .env del servidor. Avísale a Ricardo.")
+            import httpx
+            payload = {k: args[k] for k in ("fecha_inicio", "fecha_fin", "local", "area") if args.get(k)}
+            try:
+                async with httpx.AsyncClient(timeout=25) as c:
+                    r = await c.post(
+                        DIMANGOTOGO_CHECKLIST_URL,
+                        json=payload,
+                        headers={"x-maximus-secret": DIMANGOTOGO_SECRET},
+                    )
+            except httpx.RequestError as e:
+                return f"No pude conectar con DiMangoToGo: {e}"
+            if r.status_code != 200:
+                return f"DiMangoToGo respondió {r.status_code}: {r.text[:300]}"
+            d = r.json()
+            rango = d["rango"]
+            partes = [
+                f"Checklist {rango['fecha_inicio']} a {rango['fecha_fin']} "
+                f"({rango['local']}, área: {rango['area']}) — "
+                f"{d['cobertura_recetas_pct']}% de lo vendido tiene receta vinculada."
+            ]
+            sin_receta = d.get("productos_sin_receta", [])
+            if sin_receta:
+                partes.append(
+                    f"\n{len(sin_receta)} productos SIN receta (sus insumos no se "
+                    f"están contando): {', '.join(sin_receta[:20])}"
+                    + ("..." if len(sin_receta) > 20 else "")
+                )
+            insumos = d.get("insumos_a_reponer", [])
+            if insumos:
+                partes.append("\nInsumos a reponer (mayor a menor):")
+                for i in insumos[:25]:
+                    stock = ""
+                    if i.get("stock_actual") is not None:
+                        stock = f" — stock actual {i['stock_actual']}"
+                        if i.get("stock_minimo") is not None:
+                            stock += f" (mín. {i['stock_minimo']})"
+                    cant = i["a_reponer"]
+                    cant_fmt = int(cant) if cant == int(cant) else round(cant, 2)
+                    partes.append(f"  {cant_fmt} {i['unidad']} · {i['insumo']} ({i['area']}){stock}")
+            else:
+                partes.append("\nNo hay insumos con receta vinculada en este rango.")
             return "\n".join(partes)
     except Exception as e:
         logger.error(f"[MAXIMUS] Herramienta {nombre} falló: {e}")
