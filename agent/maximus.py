@@ -219,6 +219,58 @@ HERRAMIENTAS = [
             },
         },
     },
+    {
+        "name": "crear_alerta_venta",
+        "description": (
+            "Crea una alerta que avisa por WhatsApp cuando se vende cierta "
+            "cantidad de un producto. Úsala cuando Ricardo diga 'avísame "
+            "cuando se venda X' o 'avísame cuando se vendan N de X'. Queda "
+            "activa todos los días hasta que la cancele — no es de una sola "
+            "vez. Avisa como máximo una vez por día por alerta."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "producto": {
+                    "type": "string",
+                    "description": "Nombre o parte del nombre del producto a vigilar, ej: 'fettuccine'.",
+                },
+                "umbral": {
+                    "type": "integer",
+                    "description": "Cuántas unidades vendidas disparan el aviso. Si no lo dicen, usa 1.",
+                },
+                "local": {
+                    "type": "string",
+                    "enum": ["playa", "mall"],
+                    "description": "Si no lo dicen, cuenta ambos locales juntos.",
+                },
+            },
+            "required": ["producto"],
+        },
+    },
+    {
+        "name": "listar_alertas_venta",
+        "description": "Lista las alertas de venta activas ahora mismo.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "cancelar_alerta_venta",
+        "description": (
+            "Cancela una o más alertas de venta activas. Úsala cuando "
+            "Ricardo diga 'deja de avisarme de X' o 'cancela la alerta de X'. "
+            "Para cancelarlas todas, usa producto='todas'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "producto": {
+                    "type": "string",
+                    "description": "Texto que identifica la alerta a cancelar, o 'todas'.",
+                },
+            },
+            "required": ["producto"],
+        },
+    },
 ]
 
 DIMANGOTOGO_URL = "https://dimangotogo.base44.app/functions/maximusVentas"
@@ -387,6 +439,39 @@ async def ejecutar_herramienta(nombre: str, args: dict) -> str:
             else:
                 partes.append("\nNo hay insumos con receta vinculada en este rango.")
             return "\n".join(partes)
+
+        if nombre == "crear_alerta_venta":
+            from agent.alertas_venta import crear_alerta
+            producto = (args.get("producto") or "").strip()
+            if not producto:
+                return "Falta el nombre del producto."
+            umbral = int(args.get("umbral") or 1)
+            local = args.get("local") or ""
+            alerta = await crear_alerta(producto, umbral, local)
+            loc_txt = f" en {local}" if local else " (ambos locales)"
+            return (f"Alerta creada: te aviso cuando se vendan {umbral}x \"{producto}\"{loc_txt}. "
+                    f"Queda activa todos los días hasta que me digas que pare.")
+
+        if nombre == "listar_alertas_venta":
+            from agent.alertas_venta import listar_alertas_activas
+            activas = await listar_alertas_activas()
+            if not activas:
+                return "No tienes alertas de venta activas."
+            partes = ["Alertas activas:"]
+            for a in activas:
+                loc_txt = f" en {a.local}" if a.local else ""
+                partes.append(f"  {a.umbral}x \"{a.producto}\"{loc_txt}")
+            return "\n".join(partes)
+
+        if nombre == "cancelar_alerta_venta":
+            from agent.alertas_venta import cancelar_alertas
+            producto = (args.get("producto") or "").strip()
+            if not producto:
+                return "Falta indicar qué alerta cancelar (o 'todas')."
+            n = await cancelar_alertas(producto)
+            if n == 0:
+                return f"No encontré ninguna alerta activa que coincida con \"{producto}\"."
+            return f"Cancelada{'s' if n > 1 else ''} {n} alerta{'s' if n > 1 else ''}."
     except Exception as e:
         logger.error(f"[MAXIMUS] Herramienta {nombre} falló: {e}")
         return f"La consulta falló: {e}"
