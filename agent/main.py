@@ -31,6 +31,7 @@ from agent.maximus import es_maximus, responder as responder_maximus
 from agent import telegram_maximus as tg
 from agent.voz import sintetizar as sintetizar_voz
 from agent.alertas_venta import inicializar_alertas, loop_alertas_venta
+from agent.notas_personales import inicializar_notas, loop_recordatorios_personales
 
 load_dotenv()
 
@@ -85,6 +86,7 @@ async def lifespan(app: FastAPI):
     await inicializar_db()
     await migrar_esquema()
     await inicializar_alertas()
+    await inicializar_notas()
     logger.info("Base de datos inicializada")
     logger.info(f"Servidor AgentKit corriendo en puerto {PORT}")
     logger.info(f"Proveedor de WhatsApp: {proveedor.__class__.__name__}")
@@ -98,10 +100,13 @@ async def lifespan(app: FastAPI):
     tarea_recordatorio_diario = asyncio.create_task(loop_recordatorios_diarios(proveedor))
     # Loop que revisa las alertas de venta que Ricardo va creando por conversación
     tarea_alertas_venta = asyncio.create_task(loop_alertas_venta(proveedor))
+    # Loop que avisa los recordatorios personales de Ricardo cuando vencen
+    tarea_recordatorios_personales = asyncio.create_task(loop_recordatorios_personales(proveedor))
     yield
     tarea_colacion.cancel()
     tarea_recordatorio_diario.cancel()
     tarea_alertas_venta.cancel()
+    tarea_recordatorios_personales.cancel()
 
 
 # En producción la documentación de la API queda cerrada: el servicio está

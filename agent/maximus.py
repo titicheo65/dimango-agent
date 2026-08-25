@@ -271,6 +271,74 @@ HERRAMIENTAS = [
             "required": ["producto"],
         },
     },
+    {
+        "name": "guardar_nota_personal",
+        "description": (
+            "Guarda algo de la vida de Ricardo — no es de DiMango. Úsala "
+            "cuando cuente algo de su día, algo que quiere mejorar, una "
+            "idea suelta, o te pida que le recuerdes algo a una hora "
+            "concreta. Vuelve a aparecer sola en conversaciones futuras, no "
+            "hace falta que la pidan."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "contenido": {
+                    "type": "string",
+                    "description": "Qué guardar, en una o dos frases.",
+                },
+                "categoria": {
+                    "type": "string",
+                    "enum": ["nota", "mejora", "recordatorio"],
+                    "description": (
+                        "'nota' para algo del día a día, 'mejora' para algo que "
+                        "quiere trabajar en sí mismo, 'recordatorio' si pidió que "
+                        "le avises a una hora concreta. Si no queda claro, usa 'nota'."
+                    ),
+                },
+                "recordar_en": {
+                    "type": "string",
+                    "description": (
+                        "Solo si categoria='recordatorio': fecha y hora ISO "
+                        "(YYYY-MM-DDTHH:MM:SS) en hora de Chile, calculada por ti a "
+                        "partir de la fecha de hoy que ya tienes en tu contexto."
+                    ),
+                },
+            },
+            "required": ["contenido"],
+        },
+    },
+    {
+        "name": "listar_notas_personales",
+        "description": "Lista las notas, mejoras y recordatorios personales activos de Ricardo.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "categoria": {
+                    "type": "string",
+                    "enum": ["nota", "mejora", "recordatorio"],
+                    "description": "Si no la dicen, trae todas las categorías.",
+                },
+            },
+        },
+    },
+    {
+        "name": "cerrar_nota_personal",
+        "description": (
+            "Marca una nota, mejora o recordatorio personal como cumplido. "
+            "Úsala cuando Ricardo diga 'ya lo hice', 'olvídalo', o 'listo con eso'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "texto": {
+                    "type": "string",
+                    "description": "Texto que identifica la nota a cerrar, o 'todas'.",
+                },
+            },
+            "required": ["texto"],
+        },
+    },
 ]
 
 DIMANGOTOGO_URL = "https://dimangotogo.base44.app/functions/maximusVentas"
@@ -472,6 +540,50 @@ async def ejecutar_herramienta(nombre: str, args: dict) -> str:
             if n == 0:
                 return f"No encontré ninguna alerta activa que coincida con \"{producto}\"."
             return f"Cancelada{'s' if n > 1 else ''} {n} alerta{'s' if n > 1 else ''}."
+
+        if nombre == "guardar_nota_personal":
+            from agent.notas_personales import guardar_nota
+            contenido = (args.get("contenido") or "").strip()
+            if not contenido:
+                return "Falta el contenido de la nota."
+            categoria = args.get("categoria") or "nota"
+            recordar_en = None
+            if categoria == "recordatorio":
+                crudo = (args.get("recordar_en") or "").strip()
+                if crudo:
+                    try:
+                        # la tabla guarda UTC naive; el modelo manda hora de Chile
+                        local = datetime.fromisoformat(crudo).replace(tzinfo=TZ_CHILE)
+                        recordar_en = local.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+                    except ValueError:
+                        return f"No entendí la fecha \"{crudo}\". Debe ser YYYY-MM-DDTHH:MM:SS."
+            await guardar_nota(contenido, categoria, recordar_en)
+            if categoria == "recordatorio" and recordar_en:
+                return f"Guardado. Te aviso: \"{contenido}\"."
+            return "Guardado."
+
+        if nombre == "listar_notas_personales":
+            from agent.notas_personales import listar_notas
+            categoria = args.get("categoria")
+            notas = await listar_notas(categoria)
+            if not notas:
+                return "No tienes notas personales activas."
+            etq = {"nota": "📝", "mejora": "🎯", "recordatorio": "⏰"}
+            partes = ["Notas personales activas:"]
+            for n in notas:
+                cuando = f" ({n.recordar_en.strftime('%d-%b %H:%M')})" if n.recordar_en else ""
+                partes.append(f"  {etq.get(n.categoria,'📝')} {n.contenido}{cuando}")
+            return "\n".join(partes)
+
+        if nombre == "cerrar_nota_personal":
+            from agent.notas_personales import marcar_nota
+            texto = (args.get("texto") or "").strip()
+            if not texto:
+                return "Falta indicar qué nota cerrar (o 'todas')."
+            n = await marcar_nota(texto, "cumplida")
+            if n == 0:
+                return f"No encontré ninguna nota activa que coincida con \"{texto}\"."
+            return f"Cerrada{'s' if n > 1 else ''} {n} nota{'s' if n > 1 else ''}."
     except Exception as e:
         logger.error(f"[MAXIMUS] Herramienta {nombre} falló: {e}")
         return f"La consulta falló: {e}"
@@ -575,22 +687,32 @@ async def responder(mensaje: str, historial: list[dict]) -> str:
     mensajes = [{"role": m["role"], "content": m["content"]} for m in historial]
     mensajes.append({"role": "user", "content": mensaje})
 
+    from agent.notas_personales import contexto_notas_recientes
+    notas_ctx = await contexto_notas_recientes()
+
     # Camino nuevo: core + índice (cacheable) y notas recuperadas (variable).
     # La separación importa — si se mezcla, el prompt cambia entero y el cache
     # nunca acierta. Camino viejo: los seis archivos completos, en un solo bloque.
+    # Las notas personales van SIEMPRE en la parte variable/sin caché: cambian
+    # con el tiempo, y si entraran al bloque fijo el cache nunca acertaría.
     atomico = construir_prompt_atomico(mensaje)
     if atomico:
         fija, variable = atomico
+        if notas_ctx:
+            variable = variable + "\n\n" + notas_ctx
         system_bloques = [
             {"type": "text", "text": fija, "cache_control": {"type": "ephemeral"}},
             {"type": "text", "text": variable},
         ]
     else:
+        base = construir_system_prompt()
         system_bloques = [{
             "type": "text",
-            "text": construir_system_prompt(),
+            "text": base,
             "cache_control": {"type": "ephemeral"},
         }]
+        if notas_ctx:
+            system_bloques.append({"type": "text", "text": notas_ctx})
 
     for modelo in (MODELO, MODELO_FALLBACK):
         try:
