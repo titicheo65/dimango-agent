@@ -341,11 +341,70 @@ HERRAMIENTAS = [
             "required": ["texto"],
         },
     },
+    {
+        "name": "gastos_dimango",
+        "description": (
+            "Gastos y egresos reales de DiMangoWorking (GastionFinanciera → "
+            "Gastos): monto total, pendiente vs pagado, por tipo de gasto y "
+            "por proveedor. Úsala cuando pregunten cuánto se ha gastado, en "
+            "qué, a quién se le debe, o pidan un gasto de un proveedor o "
+            "rango de fechas. Por defecto: el mes en curso."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "fecha_inicio": {
+                    "type": "string",
+                    "description": "YYYY-MM-DD. Si no la dicen, el día 1 del mes en curso.",
+                },
+                "fecha_fin": {
+                    "type": "string",
+                    "description": "YYYY-MM-DD. Si no la dicen, usa hoy.",
+                },
+                "estado": {
+                    "type": "string",
+                    "enum": ["PENDIENTE", "PAGADO"],
+                    "description": "Si no lo dicen, trae ambos.",
+                },
+                "tipo_gasto": {
+                    "type": "string",
+                    "description": "Ej: ALIMENTOS, NO ALIMENTOS, GASTOS FIJOS, SUELDOS. Si no lo dicen, trae todos.",
+                },
+            },
+        },
+    },
+    {
+        "name": "bodega_dimango",
+        "description": (
+            "Bodega general de DiMangoWorking: valorización del inventario "
+            "por bodega, e ítems bajo stock mínimo agrupados por proveedor "
+            "— la base para armar el pedido a proveedores. Úsala cuando "
+            "pregunten qué hay que pedir, a qué proveedor, cuánto vale el "
+            "inventario, o qué se está por acabar en bodega."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "bodega": {
+                    "type": "string",
+                    "description": "Ej: 'Bodega 1', 'Camara -18', 'Mall'. Si no la dicen, trae todas.",
+                },
+                "solo_bajo_minimo": {
+                    "type": "boolean",
+                    "description": "true si solo quieren lo que hay que pedir, sin la valorización completa.",
+                },
+            },
+        },
+    },
 ]
 
 DIMANGOTOGO_URL = "https://dimangotogo.base44.app/functions/maximusVentas"
 DIMANGOTOGO_CHECKLIST_URL = "https://dimangotogo.base44.app/functions/maximusChecklist"
 DIMANGOTOGO_SECRET = os.getenv("DIMANGOTOGO_MAXIMUS_SECRET", "")
+
+DIMANGOWORKING_GASTOS_URL = "https://dimangoworking.base44.app/functions/maximusGastos"
+DIMANGOWORKING_BODEGA_URL = "https://dimangoworking.base44.app/functions/maximusBodega"
+DIMANGOWORKING_SECRET = os.getenv("DIMANGOWORKING_MAXIMUS_SECRET", "")
 
 CIUDADES = {
     "arica": (-18.4783, -70.3126), "santiago": (-33.4489, -70.6693),
@@ -586,6 +645,76 @@ async def ejecutar_herramienta(nombre: str, args: dict) -> str:
             if n == 0:
                 return f"No encontré ninguna nota activa que coincida con \"{texto}\"."
             return f"Cerrada{'s' if n > 1 else ''} {n} nota{'s' if n > 1 else ''}."
+
+        if nombre == "gastos_dimango":
+            if not DIMANGOWORKING_SECRET:
+                return ("No puedo consultar DimangoWorking: falta DIMANGOWORKING_MAXIMUS_SECRET "
+                        "en el .env del servidor. Avísale a Ricardo.")
+            import httpx
+            payload = {k: args[k] for k in ("fecha_inicio", "fecha_fin", "estado", "tipo_gasto") if args.get(k)}
+            try:
+                async with httpx.AsyncClient(timeout=25) as c:
+                    r = await c.post(
+                        DIMANGOWORKING_GASTOS_URL,
+                        json=payload,
+                        headers={"x-maximus-secret": DIMANGOWORKING_SECRET},
+                    )
+            except httpx.RequestError as e:
+                return f"No pude conectar con DimangoWorking: {e}"
+            if r.status_code != 200:
+                return f"DimangoWorking respondió {r.status_code}: {r.text[:300]}"
+            d = r.json()
+            rango, resumen = d["rango"], d["resumen"]
+            partes = [
+                f"Gastos {rango['fecha_inicio']} a {rango['fecha_fin']} "
+                f"(estado: {rango['estado']}): {resumen['total_gastos']} gastos, "
+                f"${resumen['monto_total']:,.0f} en total.".replace(",", "."),
+                f"  Pendiente: ${resumen['pendiente']:,.0f} · Pagado: ${resumen['pagado']:,.0f}".replace(",", "."),
+            ]
+            if resumen.get("por_tipo"):
+                partes.append("\nPor tipo:")
+                for t, monto in sorted(resumen["por_tipo"].items(), key=lambda x: -x[1]):
+                    partes.append(f"  {t}: ${monto:,.0f}".replace(",", "."))
+            top_prov = sorted(resumen.get("por_proveedor", {}).items(), key=lambda x: -x[1])[:10]
+            if top_prov:
+                partes.append("\nMayores proveedores:")
+                for p, monto in top_prov:
+                    partes.append(f"  {p}: ${monto:,.0f}".replace(",", "."))
+            return "\n".join(partes)
+
+        if nombre == "bodega_dimango":
+            if not DIMANGOWORKING_SECRET:
+                return ("No puedo consultar DimangoWorking: falta DIMANGOWORKING_MAXIMUS_SECRET "
+                        "en el .env del servidor. Avísale a Ricardo.")
+            import httpx
+            payload = {k: args[k] for k in ("bodega", "solo_bajo_minimo") if args.get(k) is not None}
+            try:
+                async with httpx.AsyncClient(timeout=25) as c:
+                    r = await c.post(
+                        DIMANGOWORKING_BODEGA_URL,
+                        json=payload,
+                        headers={"x-maximus-secret": DIMANGOWORKING_SECRET},
+                    )
+            except httpx.RequestError as e:
+                return f"No pude conectar con DimangoWorking: {e}"
+            if r.status_code != 200:
+                return f"DimangoWorking respondió {r.status_code}: {r.text[:300]}"
+            d = r.json()
+            partes = []
+            if d.get("valorizacion"):
+                v = d["valorizacion"]
+                partes.append(f"Inventario: {v['total_items']} ítems, ${v['valor_total']:,.0f} valorizados.".replace(",", "."))
+                for b, monto in sorted(v.get("por_bodega", {}).items(), key=lambda x: -x[1]):
+                    partes.append(f"  {b}: ${monto:,.0f}".replace(",", "."))
+            bajo = d.get("bajo_minimo", [])
+            if bajo:
+                partes.append(f"\n{len(bajo)} ítems bajo el mínimo:")
+                for it in bajo[:25]:
+                    partes.append(f"  {it['item']} ({it['bodega']}): {it['stock_real']}/{it['stock_minimo']} {it['unidad']}"
+                                  + (f" — pedir a {it['proveedor_1']}" if it.get('proveedor_1') else ""))
+            else:
+                partes.append("\nNada bajo el mínimo.")
+            return "\n".join(partes)
     except Exception as e:
         logger.error(f"[MAXIMUS] Herramienta {nombre} falló: {e}")
         return f"La consulta falló: {e}"
