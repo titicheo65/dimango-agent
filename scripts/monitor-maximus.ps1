@@ -1,22 +1,24 @@
-# scripts/monitor-maximus.ps1 — vigilante de maximus-agent
+# scripts/monitor-maximus.ps1 - vigilante de maximus-agent
 #
-# Por qué existe: hasta hoy (26-ago-2026), la única forma de saber que
-# Maximus estaba caído era que Ricardo le preguntara algo y no respondiera.
-# Tres veces en tres días un proceso ajeno (no lanzado por PM2) ocupó el
-# puerto 8000 y PM2 no podía tomarlo — PM2 por sí solo reinicia procesos
-# que se caen, pero no sabe que el puerto está tomado por otra cosa.
+# Por que existe: hasta el 26-ago-2026, la unica forma de saber que
+# Maximus estaba caido era que Ricardo le preguntara algo y no respondiera.
+# Tres veces en tres dias un proceso ajeno (no lanzado por PM2) ocupo el
+# puerto 8000 y PM2 no podia tomarlo - PM2 por si solo reinicia procesos
+# que se caen, pero no sabe que el puerto esta tomado por otra cosa.
 #
-# Qué hace, en orden:
+# Que hace, en orden:
 #   1. Revisa si algo responde bien en el puerto 8000.
-#   2. Si no, mira quién tiene el puerto. Si es un proceso que PM2 no
-#      reconoce como el suyo (el patrón del zombi), lo mata.
+#   2. Si no, mira quien tiene el puerto. Si es un proceso que PM2 no
+#      reconoce como el suyo (el patron del zombi), lo mata.
 #   3. Reinicia maximus-agent con PM2 y espera a que levante.
-#   4. Si sigue sin responder, avisa por Telegram — por la API directa,
-#      no por el agente (así funciona aunque el agente esté completamente
-#      abajo). Usa el mismo bot y el mismo chat_id que ya usa Maximus.
+#   4. Si sigue sin responder, avisa por Telegram - por la API directa,
+#      no por el agente (asi funciona aunque el agente este completamente
+#      caido). Usa el mismo bot y el mismo chat_id que ya usa Maximus.
 #
-# Se corre solo, cada 5 minutos, vía una Tarea Programada de Windows —
-# ver instrucciones al final de este archivo para registrarla.
+# Se corre solo, cada 5 minutos, via una Tarea Programada de Windows.
+# Nota deliberada: este archivo no usa tildes ni caracteres especiales -
+# PowerShell 5.1 en Windows a veces lee mal el UTF-8 de archivos bajados
+# por git y eso genera comillas fantasma que rompen el parser entero.
 
 $ErrorActionPreference = 'SilentlyContinue'
 $rutaAgente = "C:\dimango-agent"
@@ -38,13 +40,11 @@ function Salud-Ok {
 }
 
 if (Salud-Ok) {
-    exit 0   # todo bien, no hay nada que hacer ni que registrar
+    exit 0
 }
 
 Log "Salud fallo. Revisando quien tiene el puerto 8000."
 
-# ¿Hay un zombi? — un proceso en el puerto 8000 que PM2 no reconoce como
-# el suyo. Este es exactamente el patrón que se repitió tres veces.
 $conn = Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($conn) {
     $pidPuerto = $conn.OwningProcess
@@ -66,23 +66,17 @@ if (Salud-Ok) {
     exit 0
 }
 
-Log "Sigue caído después de reiniciar. Avisando por Telegram."
+Log "Sigue caido despues de reiniciar. Avisando por Telegram."
 try {
     $linea = Get-Content $envFile | Where-Object { $_ -match "^TELEGRAM_BOT_TOKEN=" }
     $token = ($linea -split "=", 2)[1]
     if ($token) {
-        $texto = "Maximus está caído en ServidorPlaya y no se pudo reiniciar solo. Hay que revisarlo por RDP."
-        Invoke-RestMethod -Uri "https://api.telegram.org/bot$token/sendMessage" -Method Post `
-            -Body @{ chat_id = $chatId; text = $texto } | Out-Null
+        $texto = "Maximus esta caido en ServidorPlaya y no se pudo reiniciar solo. Hay que revisarlo por RDP."
+        Invoke-RestMethod -Uri "https://api.telegram.org/bot$token/sendMessage" -Method Post -Body @{ chat_id = $chatId; text = $texto } | Out-Null
         Log "Aviso enviado por Telegram."
     } else {
-        Log "No se encontró TELEGRAM_BOT_TOKEN en .env — no se pudo avisar."
+        Log "No se encontro TELEGRAM_BOT_TOKEN en .env - no se pudo avisar."
     }
 } catch {
     Log "Fallo al avisar por Telegram: $_"
 }
-
-# Los comandos para registrar esto como Tarea Programada viven en la
-# memoria (S-022 / instrucciones de despliegue), no acá — un bloque de
-# comentario con comillas anidadas rompió el parser de PowerShell la
-# primera vez que se probó este archivo. Más simple, menos riesgo.
