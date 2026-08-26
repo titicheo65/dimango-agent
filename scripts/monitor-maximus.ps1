@@ -82,12 +82,7 @@ try {
     Log "Fallo al avisar por Telegram: $_"
 }
 
-# ════════════════════════════════════════════════════════════
-# Cómo registrar esto como Tarea Programada (correr una vez, en PowerShell
-# como Administrador):
-#
-# $accion = New-ScheduledTaskAction -Execute "powershell.exe" `
-#   -Argument '-NoProfile -ExecutionPolicy Bypass -File "C:\dimango-agent\scripts\monitor-maximus.ps1"'
-# $disparador = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 5) -RepetitionDuration ([TimeSpan]::MaxValue)
-# Register-ScheduledTask -TaskName "Maximus-Vigilante" -Action $accion -Trigger $disparador -RunLevel Highest -Force
-# ════════════════════════════════════════════════════════════
+# Los comandos para registrar esto como Tarea Programada viven en la
+# memoria (S-022 / instrucciones de despliegue), no acá — un bloque de
+# comentario con comillas anidadas rompió el parser de PowerShell la
+# primera vez que se probó este archivo. Más simple, menos riesgo.
