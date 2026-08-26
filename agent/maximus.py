@@ -409,6 +409,17 @@ HERRAMIENTAS = [
     },
 ]
 
+# Herramienta de servidor de Anthropic — Claude busca y trae los
+# resultados solo, dentro de la misma llamada. No pasa por
+# ejecutar_herramienta() como las de arriba: la API la resuelve sola.
+# Para noticias, deportes, o cualquier cosa de HOY que no esté en la
+# memoria de Maximus ni en las herramientas de negocio.
+WEB_SEARCH_TOOL = {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5,
+}
+
 DIMANGOTOGO_URL = "https://dimangotogo.base44.app/functions/maximusVentas"
 DIMANGOTOGO_CHECKLIST_URL = "https://dimangotogo.base44.app/functions/maximusChecklist"
 DIMANGOTOGO_SECRET = os.getenv("DIMANGOTOGO_MAXIMUS_SECRET", "")
@@ -815,7 +826,14 @@ como estimación.
 
 Si Ricardo te pide escribir en la memoria, editar archivos o ejecutar código:
 dile que eso se hace en la sesión de Claude Code, no por WhatsApp. No finjas que
-lo hiciste."""
+lo hiciste.
+
+Tienes búsqueda web real. Úsala para noticias, deportes, o cualquier cosa de
+HOY que no esté en tu memoria ni en tus herramientas de negocio — no digas
+"no tengo internet", sí lo tienes. Cuando la respuesta venga de una búsqueda,
+incluye la URL de la fuente tal cual (sin acortarla ni inventarla) para que el
+cerebro visual pueda mostrarla como link. Si encuentras un video de YouTube
+relevante, incluye esa URL exacta — el cerebro lo embebe solo."""
 
 
 def construir_system_prompt() -> str:
@@ -888,9 +906,9 @@ async def responder(
             for _ in range(2):
                 respuesta = await client.messages.create(
                     model=modelo,
-                    max_tokens=1500,
+                    max_tokens=2048,   # con búsqueda web, 1500 se quedaba corto y cortaba la respuesta
                     system=system_bloques,
-                    tools=HERRAMIENTAS,
+                    tools=HERRAMIENTAS + [WEB_SEARCH_TOOL],
                     messages=mensajes,
                 )
                 logger.info(
