@@ -1,4 +1,4 @@
-# scripts/monitor-maximus.ps1 - vigilante de maximus-agent
+# scripts/monitor-maximus.ps1 - vigilante de maximus-agent e impresion-playa
 #
 # Por que existe: hasta el 26-ago-2026, la unica forma de saber que
 # Maximus estaba caido era que Ricardo le preguntara algo y no respondiera.
@@ -6,11 +6,18 @@
 # puerto 8000 y PM2 no podia tomarlo - PM2 por si solo reinicia procesos
 # que se caen, pero no sabe que el puerto esta tomado por otra cosa.
 #
-# Que hace, en orden:
-#   1. Revisa si algo responde bien en el puerto 8000.
+# Extendido el 27-ago-2026 (ver H-022) para vigilar tambien
+# impresion-playa: ese proceso llevaba crasheando en bucle desde el
+# 2-jul-2026 sin que nada lo vigilara, porque este script solo miraba
+# maximus-agent. La causa de ese crash-loop no era el codigo de impresion
+# (ver correccion en H-018) - eran daemons de PM2 duplicados y tuneles
+# ngrok huerfanos. Igual, vale la pena vigilarlo por si vuelve a pasar.
+#
+# Que hace, por cada proceso, en orden:
+#   1. Revisa si su endpoint de salud responde bien.
 #   2. Si no, mira quien tiene el puerto. Si es un proceso que PM2 no
 #      reconoce como el suyo (el patron del zombi), lo mata.
-#   3. Reinicia maximus-agent con PM2 y espera a que levante.
+#   3. Reinicia el proceso con PM2 y espera a que levante.
 #   4. Si sigue sin responder, avisa por Telegram - por la API directa,
 #      no por el agente (asi funciona aunque el agente este completamente
 #      caido). Usa el mismo bot y el mismo chat_id que ya usa Maximus.
@@ -30,53 +37,68 @@ function Log($msg) {
     "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') $msg" | Add-Content -Path $logFile
 }
 
-function Salud-Ok {
+function Avisar($texto) {
     try {
-        $r = Invoke-WebRequest -Uri "http://localhost:8000/" -TimeoutSec 5 -UseBasicParsing
+        $linea = Get-Content $envFile | Where-Object { $_ -match "^TELEGRAM_BOT_TOKEN=" }
+        $token = ($linea -split "=", 2)[1]
+        if ($token) {
+            Invoke-RestMethod -Uri "https://api.telegram.org/bot$token/sendMessage" -Method Post -Body @{ chat_id = $chatId; text = $texto } | Out-Null
+            Log "Aviso enviado por Telegram: $texto"
+        } else {
+            Log "No se encontro TELEGRAM_BOT_TOKEN en .env - no se pudo avisar."
+        }
+    } catch {
+        Log "Fallo al avisar por Telegram: $_"
+    }
+}
+
+function Salud-Ok($url) {
+    try {
+        $r = Invoke-WebRequest -Uri $url -TimeoutSec 5 -UseBasicParsing
         return $r.StatusCode -eq 200
     } catch {
         return $false
     }
 }
 
-if (Salud-Ok) {
-    exit 0
-}
-
-Log "Salud fallo. Revisando quien tiene el puerto 8000."
-
-$conn = Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
-if ($conn) {
-    $pidPuerto = $conn.OwningProcess
-    $pm2Info = pm2 jlist | ConvertFrom-Json | Where-Object { $_.name -eq 'maximus-agent' }
-    $pidPm2 = $pm2Info.pid
-    if ($pidPuerto -and ($pidPuerto -ne $pidPm2)) {
-        $proc = Get-Process -Id $pidPuerto -ErrorAction SilentlyContinue
-        Log "Puerto 8000 tomado por PID $pidPuerto ($($proc.ProcessName)), no es el de PM2 ($pidPm2). Matando zombi."
-        Stop-Process -Id $pidPuerto -Force -ErrorAction SilentlyContinue
+function Revisar-Y-Arreglar($nombrePm2, $puerto, $urlSalud) {
+    if (Salud-Ok $urlSalud) {
+        return $true
     }
-}
 
-Log "Reiniciando maximus-agent con PM2."
-pm2 restart maximus-agent | Out-Null
-Start-Sleep -Seconds 8
+    Log "$nombrePm2 : salud fallo. Revisando quien tiene el puerto $puerto."
 
-if (Salud-Ok) {
-    Log "Recuperado solo tras el reinicio."
-    exit 0
-}
-
-Log "Sigue caido despues de reiniciar. Avisando por Telegram."
-try {
-    $linea = Get-Content $envFile | Where-Object { $_ -match "^TELEGRAM_BOT_TOKEN=" }
-    $token = ($linea -split "=", 2)[1]
-    if ($token) {
-        $texto = "Maximus esta caido en ServidorPlaya y no se pudo reiniciar solo. Hay que revisarlo por RDP."
-        Invoke-RestMethod -Uri "https://api.telegram.org/bot$token/sendMessage" -Method Post -Body @{ chat_id = $chatId; text = $texto } | Out-Null
-        Log "Aviso enviado por Telegram."
-    } else {
-        Log "No se encontro TELEGRAM_BOT_TOKEN en .env - no se pudo avisar."
+    $conn = Get-NetTCPConnection -LocalPort $puerto -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($conn) {
+        $pidPuerto = $conn.OwningProcess
+        $pm2Info = pm2 jlist | ConvertFrom-Json | Where-Object { $_.name -eq $nombrePm2 }
+        $pidPm2 = $pm2Info.pid
+        if ($pidPuerto -and ($pidPuerto -ne $pidPm2)) {
+            $proc = Get-Process -Id $pidPuerto -ErrorAction SilentlyContinue
+            Log "$nombrePm2 : puerto $puerto tomado por PID $pidPuerto ($($proc.ProcessName)), no es el de PM2 ($pidPm2). Matando zombi."
+            Stop-Process -Id $pidPuerto -Force -ErrorAction SilentlyContinue
+        }
     }
-} catch {
-    Log "Fallo al avisar por Telegram: $_"
+
+    Log "$nombrePm2 : reiniciando con PM2."
+    pm2 restart $nombrePm2 | Out-Null
+    Start-Sleep -Seconds 8
+
+    if (Salud-Ok $urlSalud) {
+        Log "$nombrePm2 : recuperado solo tras el reinicio."
+        return $true
+    }
+
+    Log "$nombrePm2 : sigue caido despues de reiniciar."
+    return $false
+}
+
+$maximusOk = Revisar-Y-Arreglar "maximus-agent" 8000 "http://localhost:8000/"
+$impresionOk = Revisar-Y-Arreglar "impresion-playa" 3001 "http://localhost:3001/health"
+
+if (-not $maximusOk) {
+    Avisar "Maximus esta caido en ServidorPlaya y no se pudo reiniciar solo. Hay que revisarlo por RDP."
+}
+if (-not $impresionOk) {
+    Avisar "El servidor de impresion de Playa esta caido y no se pudo reiniciar solo. Riesgo de que no se impriman boletas. Hay que revisarlo por RDP."
 }
