@@ -50,6 +50,14 @@
   .hablando #orbe{border-color:#50e3c2;box-shadow:0 0 40px rgba(80,227,194,.5)}
 
   #detalle{max-width:640px;text-align:center;font-size:14px;color:#8b93a3;min-height:20px}
+
+  #btnMic{
+    align-self:center;width:64px;height:64px;border-radius:50%;
+    background:rgba(14,17,24,.94);border:2px solid #232838;color:#4d5566;
+    font-size:26px;cursor:pointer;transition:all .2s ease;
+  }
+  #btnMic:hover{border-color:#4a9eff;color:#4a9eff}
+  #btnMic.grabando{border-color:#ff5f56;color:#ff5f56;animation:pulso 1s ease-in-out infinite}
   #herramienta{font-size:12px;color:#c77dff;letter-spacing:1px;min-height:16px}
 
   #panel{display:flex;gap:18px}
@@ -80,6 +88,8 @@
 
   <div id="herramienta"></div>
   <div id="detalle">Conectando…</div>
+
+  <button id="btnMic" title="Hablarle a Maximus">🎤</button>
 
   <div id="panel">
     <div class="caja">
@@ -237,6 +247,74 @@ function reproducirAudio(base64) {
 document.body.addEventListener('click', () => {
   if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
 }, { once: false });
+
+// Botón de micrófono: habla acá, Maximus responde SOLO con audio -- no
+// muestra su respuesta escrita, solo lo que tú dijiste (transcrito en el
+// navegador, sin pasar audio crudo por el servidor).
+const btnMic = document.getElementById('btnMic');
+const Reconocedor = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+if (!Reconocedor) {
+  btnMic.disabled = true;
+  btnMic.title = 'Este navegador no soporta reconocimiento de voz';
+  btnMic.style.opacity = '.3';
+} else {
+  const reconocimiento = new Reconocedor();
+  reconocimiento.lang = 'es-CL';
+  reconocimiento.continuous = false;
+  reconocimiento.interimResults = false;
+
+  let grabando = false;
+
+  btnMic.addEventListener('click', () => {
+    if (grabando) { reconocimiento.stop(); return; }
+    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+    reconocimiento.start();
+  });
+
+  reconocimiento.onstart = () => {
+    grabando = true;
+    btnMic.classList.add('grabando');
+    elDetalle.textContent = 'Escuchando…';
+  };
+
+  reconocimiento.onerror = (ev) => {
+    console.warn('Reconocimiento de voz falló:', ev.error);
+    elDetalle.textContent = 'No entendí, intenta de nuevo.';
+  };
+
+  reconocimiento.onend = () => {
+    grabando = false;
+    btnMic.classList.remove('grabando');
+  };
+
+  reconocimiento.onresult = async (ev) => {
+    const texto = ev.results[0][0].transcript;
+    elDetalle.textContent = `"${texto}"`;
+    ponEstado('pensando', 'PENSANDO');
+    agregarLog(`Dijiste: ${texto}`);
+
+    try {
+      const r = await fetch('/maximus/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-maximus-token': token },
+        body: JSON.stringify({ mensaje: texto, voz: true, sesion: 'display' }),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const datos = await r.json();
+      if (datos.audio) {
+        reproducirAudio(datos.audio);
+      } else {
+        ponEstado('espera', 'EN ESPERA');
+        elDetalle.textContent = 'No se pudo generar el audio de la respuesta.';
+      }
+    } catch (e) {
+      console.error('Error hablando con Maximus:', e);
+      ponEstado('espera', 'EN ESPERA');
+      elDetalle.textContent = 'No pude conectar con Maximus.';
+    }
+  };
+}
 
 conectar();
 </script>

@@ -555,17 +555,12 @@ async def telegram_webhook(request: Request):
     respuesta = await responder_maximus(texto, historial)
     await guardar_mensaje(clave, "user", texto)
     await guardar_mensaje(clave, "assistant", respuesta)
+    await tg.enviar_mensaje(chat_id, respuesta)
 
-    # Respuesta principal: audio. El texto queda solo como respaldo si la
-    # síntesis falla -- nunca se manda las dos cosas (pedido explícito de
-    # Ricardo, 28-ago-2026).
-    audio = await sintetizar_voz(respuesta)
-    if audio:
-        await tg.enviar_audio(chat_id, audio)
-        import base64
-        await eventos.publicar("hablando", audio_b64=base64.b64encode(audio).decode("ascii"))
-    else:
-        await tg.enviar_mensaje(chat_id, respuesta)
+    if fue_audio:
+        audio = await sintetizar_voz(respuesta)
+        if audio:
+            await tg.enviar_audio(chat_id, audio)
 
     logger.info(f"[MAXIMUS/TG] {chat_id}: {texto[:80]}")
     return {"status": "ok"}
