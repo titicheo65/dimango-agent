@@ -956,6 +956,9 @@ async def responder(
     if not mensaje or len(mensaje.strip()) < 2:
         return "¿Me repites? No me llegó nada legible."
 
+    from agent import eventos
+    await eventos.publicar("pensando", mensaje=mensaje[:200])
+
     mensajes = [{"role": m["role"], "content": m["content"]} for m in historial]
     if imagen_b64:
         mensajes.append({"role": "user", "content": [
@@ -1014,12 +1017,15 @@ async def responder(
 
                 if respuesta.stop_reason != "tool_use":
                     partes = [b.text for b in respuesta.content if b.type == "text"]
-                    return "\n".join(partes).strip() or "No supe qué responder."
+                    texto_final = "\n".join(partes).strip() or "No supe qué responder."
+                    await eventos.publicar("respondiendo", texto=texto_final[:500])
+                    return texto_final
 
                 mensajes.append({"role": "assistant", "content": respuesta.content})
                 resultados = []
                 for bloque in respuesta.content:
                     if bloque.type == "tool_use":
+                        await eventos.publicar("ejecutando", herramienta=bloque.name)
                         salida = await ejecutar_herramienta(bloque.name, bloque.input or {})
                         logger.info(f"[MAXIMUS] herramienta {bloque.name} → {salida[:70]}")
                         resultados.append({

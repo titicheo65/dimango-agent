@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maximus Display</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;background:#07080c;color:#c8d0dc;font-family:'SF Mono',Menlo,Consolas,monospace;overflow:hidden}
+  body{display:flex;flex-direction:column;padding:24px;gap:18px}
+
+  #topbar{display:flex;justify-content:space-between;align-items:center}
+  #titulo{font-size:14px;letter-spacing:3px;color:#4d5566;font-weight:600}
+  #reloj{font-size:15px;color:#4d5566;letter-spacing:1px}
+
+  #estado{
+    align-self:center;padding:6px 18px;border-radius:20px;font-size:12px;
+    letter-spacing:3px;font-weight:700;border:1px solid #232838;
+    background:rgba(14,17,24,.9);transition:all .3s ease;
+  }
+  #estado.escuchando{border-color:#4a9eff;color:#4a9eff}
+  #estado.pensando{border-color:#f5a623;color:#f5a623}
+  #estado.ejecutando{border-color:#c77dff;color:#c77dff}
+  #estado.respondiendo{border-color:#50e3c2;color:#50e3c2}
+  #estado.espera{border-color:#232838;color:#4d5566}
+  #estado.offline{border-color:#ff5f56;color:#ff5f56}
+
+  #centro{flex:1;display:flex;align-items:center;justify-content:center;position:relative}
+  #orbe{
+    width:180px;height:180px;border-radius:50%;
+    border:2px solid #232838;position:relative;
+    display:flex;align-items:center;justify-content:center;
+    transition:border-color .3s ease, box-shadow .3s ease;
+  }
+  #orbe::before{
+    content:'';position:absolute;inset:-24px;border-radius:50%;
+    border:1px dashed #1a1e28;animation:girar 30s linear infinite;
+  }
+  #orbe.activo{animation:pulso 1.4s ease-in-out infinite}
+  #nucleo{width:60px;height:60px;border-radius:50%;background:#232838;transition:background .3s ease, box-shadow .3s ease}
+
+  @keyframes pulso{0%,100%{box-shadow:0 0 0 0 rgba(80,227,194,.35)}50%{box-shadow:0 0 0 24px rgba(80,227,194,0)}}
+  @keyframes girar{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+
+  .escuchando #orbe{border-color:#4a9eff}
+  .escuchando #nucleo{background:#4a9eff;box-shadow:0 0 30px #4a9eff}
+  .pensando #orbe{border-color:#f5a623}
+  .pensando #nucleo{background:#f5a623;box-shadow:0 0 30px #f5a623}
+  .ejecutando #orbe{border-color:#c77dff}
+  .ejecutando #nucleo{background:#c77dff;box-shadow:0 0 30px #c77dff}
+  .respondiendo #orbe{border-color:#50e3c2}
+  .respondiendo #nucleo{background:#50e3c2;box-shadow:0 0 30px #50e3c2}
+
+  #detalle{max-width:640px;text-align:center;font-size:14px;color:#8b93a3;min-height:20px}
+  #herramienta{font-size:12px;color:#c77dff;letter-spacing:1px;min-height:16px}
+
+  #panel{display:flex;gap:18px}
+  .caja{
+    flex:1;background:rgba(14,17,24,.9);border:1px solid #232838;border-radius:10px;
+    padding:14px 16px;max-height:180px;overflow:hidden;
+  }
+  .caja h3{font-size:10px;letter-spacing:2px;color:#4d5566;margin-bottom:8px}
+  #log{font-size:12px;line-height:1.6;color:#6b7386}
+  #log div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #conexiones{display:flex;flex-direction:column;gap:6px;font-size:12px}
+  .conex{display:flex;justify-content:space-between}
+  .conex .punto{width:8px;height:8px;border-radius:50%;background:#4d5566;display:inline-block;margin-right:6px}
+</style>
+</head>
+<body class="espera">
+
+  <div id="topbar">
+    <div id="titulo">MAXIMUS DISPLAY</div>
+    <div id="reloj"></div>
+  </div>
+
+  <div id="estado" class="espera">EN ESPERA</div>
+
+  <div id="centro">
+    <div id="orbe"><div id="nucleo"></div></div>
+  </div>
+
+  <div id="herramienta"></div>
+  <div id="detalle">Conectando…</div>
+
+  <div id="panel">
+    <div class="caja">
+      <h3>ACTIVIDAD RECIENTE</h3>
+      <div id="log"></div>
+    </div>
+    <div class="caja">
+      <h3>CONEXIONES</h3>
+      <div id="conexiones">
+        <div class="conex"><span><span class="punto"></span>DiMangoToGo</span><span>—</span></div>
+        <div class="conex"><span><span class="punto"></span>DiMangoWorking</span><span>—</span></div>
+        <div class="conex"><span><span class="punto"></span>Telegram</span><span>—</span></div>
+        <div class="conex"><span><span class="punto"></span>Base de datos</span><span>—</span></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+// Token por URL: http://IP:PUERTO/maximus/display?token=XXXX
+const params = new URLSearchParams(location.search);
+const token = params.get('token') || '';
+
+const body = document.body;
+const elEstado = document.getElementById('estado');
+const elDetalle = document.getElementById('detalle');
+const elHerramienta = document.getElementById('herramienta');
+const elLog = document.getElementById('log');
+
+let timeoutEspera = null;
+
+function reloj() {
+  const ahora = new Date();
+  document.getElementById('reloj').textContent =
+    ahora.toLocaleDateString('es-CL') + '  ' + ahora.toLocaleTimeString('es-CL');
+}
+setInterval(reloj, 1000);
+reloj();
+
+function ponEstado(clase, texto) {
+  body.className = clase;
+  elEstado.className = clase;
+  elEstado.textContent = texto;
+}
+
+function agregarLog(texto) {
+  const linea = document.createElement('div');
+  const hora = new Date().toLocaleTimeString('es-CL');
+  linea.textContent = `${hora}  ${texto}`;
+  elLog.prepend(linea);
+  while (elLog.children.length > 8) elLog.removeChild(elLog.lastChild);
+}
+
+function reprogramarEspera() {
+  clearTimeout(timeoutEspera);
+  timeoutEspera = setTimeout(() => {
+    ponEstado('espera', 'EN ESPERA');
+    elHerramienta.textContent = '';
+  }, 12000);
+}
+
+function conectar() {
+  const es = new EventSource(`/maximus/eventos?token=${encodeURIComponent(token)}`);
+
+  es.onopen = () => { elDetalle.textContent = 'Esperando actividad de Maximus…'; };
+
+  es.onerror = () => {
+    ponEstado('offline', 'SIN CONEXIÓN');
+    elDetalle.textContent = 'Reintentando…';
+  };
+
+  es.onmessage = (ev) => {
+    let datos;
+    try { datos = JSON.parse(ev.data); } catch (e) { return; }
+    if (datos.tipo === 'conectado') return;
+
+    reprogramarEspera();
+
+    if (datos.tipo === 'escuchando') {
+      ponEstado('escuchando', 'ESCUCHANDO');
+      elDetalle.textContent = `"${datos.mensaje}"`;
+      elHerramienta.textContent = '';
+      agregarLog(`Mensaje recibido (${datos.canal || ''}): ${datos.mensaje}`);
+    } else if (datos.tipo === 'pensando') {
+      ponEstado('pensando', 'PENSANDO');
+      elHerramienta.textContent = '';
+    } else if (datos.tipo === 'ejecutando') {
+      ponEstado('ejecutando', 'EJECUTANDO');
+      elHerramienta.textContent = `⚙ ${datos.herramienta}`;
+      agregarLog(`Usando herramienta: ${datos.herramienta}`);
+    } else if (datos.tipo === 'respondiendo') {
+      ponEstado('respondiendo', 'RESPONDIENDO');
+      elDetalle.textContent = datos.texto;
+      elHerramienta.textContent = '';
+      agregarLog(`Respuesta: ${datos.texto.slice(0, 80)}`);
+    }
+  };
+}
+
+conectar();
+</script>
+</body>
+</html>

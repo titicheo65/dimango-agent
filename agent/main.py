@@ -11,7 +11,7 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import PlainTextResponse, JSONResponse
+from fastapi.responses import PlainTextResponse, JSONResponse, StreamingResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
@@ -283,6 +283,9 @@ async def maximus_chat(request: Request):
     if not mensaje:
         raise HTTPException(status_code=400, detail="Falta el mensaje")
 
+    from agent import eventos
+    await eventos.publicar("escuchando", mensaje=mensaje[:200], canal="web")
+
     sesion = f"web:{datos.get('sesion', 'cerebro')}"
     historial = await obtener_historial(sesion)
 
@@ -450,6 +453,56 @@ async def maximus_ver(request: Request):
     raise HTTPException(status_code=502, detail="No pude analizar la imagen")
 
 
+@app.get("/maximus/eventos")
+async def maximus_eventos(request: Request):
+    """
+    Server-Sent Events para Maximus Display — TV, tablet o cualquier
+    pantalla en la red local que quiera ver en vivo qué está haciendo
+    Maximus. Solo lee del bus (agent/eventos.py); no toca la lógica real.
+
+    Protegido con el mismo MAXIMUS_CHAT_TOKEN de /maximus/chat, pasado
+    como query param (?token=...) porque EventSource del navegador no
+    permite mandar headers personalizados.
+    """
+    token_ok = os.getenv("MAXIMUS_CHAT_TOKEN", "")
+    if not token_ok or request.query_params.get("token", "") != token_ok:
+        raise HTTPException(status_code=401, detail="No autorizado")
+
+    from agent import eventos
+
+    async def flujo():
+        cola = eventos.suscribirse()
+        try:
+            yield "data: {\"tipo\": \"conectado\"}\n\n"
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    linea = await asyncio.wait_for(cola.get(), timeout=15)
+                    yield f"data: {linea}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": ping\n\n"  # mantiene viva la conexión
+        finally:
+            eventos.desuscribirse(cola)
+
+    return StreamingResponse(
+        flujo(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.get("/maximus/display")
+async def maximus_display():
+    """Página estática de Maximus Display — se conecta sola a /maximus/eventos."""
+    ruta = os.path.join(os.path.dirname(__file__), "static", "maximus_display.html")
+    try:
+        with open(ruta, "r", encoding="utf-8") as f:
+            return HTMLResponse(f.read())
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="maximus_display.html no encontrado")
+
+
 @app.post("/telegram/webhook")
 async def telegram_webhook(request: Request):
     """
@@ -483,6 +536,9 @@ async def telegram_webhook(request: Request):
         await tg.enviar_mensaje(chat_id, tg.MENSAJE_NO_AUTORIZADO)
         logger.warning(f"[TELEGRAM] Acceso denegado a chat_id {chat_id}")
         return {"status": "denegado"}
+
+    from agent import eventos
+    await eventos.publicar("escuchando", mensaje=texto[:200], canal="telegram")
 
     clave = f"tg:{chat_id}"
     historial = await obtener_historial(clave)
