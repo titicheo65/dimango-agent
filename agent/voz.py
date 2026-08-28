@@ -60,12 +60,58 @@ def _pronunciar(texto: str) -> str:
     return texto
 
 
+# Plata en formato chileno: $18.000 o $18000, con o sin espacio.
+# Excluye a propósito los que ya tienen decimales tipo $1.234,50 (raro en CLP,
+# mejor no adivinar) -- (?!\d) evita comerse un numero mas largo por error.
+_PATRON_DINERO = re.compile(r"\$\s?(\d{1,3}(?:[.,]\d{3})*)(?!\d)")
+
+
+def _arreglar_espanol(palabras: str) -> str:
+    """
+    num2words en español tiene dos bugs conocidos para este uso:
+    dice "veintiuno mil" en vez de "veintiún mil" (falta el apócope de
+    "uno" antes de "mil"), y no hay forma de pedirle "un millón DE pesos"
+    -- eso se resuelve después, al pegar la unidad.
+    """
+    palabras = re.sub(r"\buno mil\b", "un mil", palabras)
+    palabras = re.sub(r"iuno mil\b", "iún mil", palabras)
+    palabras = re.sub(r"\by uno mil\b", "y un mil", palabras)
+    return palabras
+
+
+def _dinero_a_palabras(texto: str) -> str:
+    """
+    $18.000 -> "dieciocho mil pesos". $18.000.000 -> "dieciocho millones de
+    pesos" (con "de" -- sin eso suena mal en español). Default SIEMPRE pesos
+    chilenos -- si Maximus habla de otra moneda, el texto ya lo dice
+    explícito (USD, dólares) y este patrón no debería aplicar ahí.
+    """
+    try:
+        from num2words import num2words
+    except ImportError:
+        logger.warning("[VOZ] num2words no instalado, el monto queda en dígitos")
+        return texto
+
+    def reemplazar(m: re.Match) -> str:
+        crudo = m.group(1).replace(".", "").replace(",", "")
+        try:
+            monto = int(crudo)
+        except ValueError:
+            return m.group(0)
+        palabras = _arreglar_espanol(num2words(monto, lang="es"))
+        conector = " de pesos" if palabras.split()[-1] in ("millón", "millones") else " pesos"
+        return palabras + conector
+
+    return _PATRON_DINERO.sub(reemplazar, texto)
+
+
 def _limpiar_para_voz(texto: str) -> str:
     """
     Saca el marcado que suena mal leído en voz alta.
     Los asteriscos de negrita de WhatsApp se leerían como "asterisco".
     """
-    limpio = texto.replace("*", "").replace("_", "").replace("`", "")
+    limpio = _dinero_a_palabras(texto)
+    limpio = limpio.replace("*", "").replace("_", "").replace("`", "")
     limpio = limpio.replace("—", ",").replace("·", ",")
     # Los guiones de lista al inicio de línea se leen como pausa, no como "guion"
     lineas = [l.lstrip("- ").strip() if l.strip().startswith("-") else l for l in limpio.split("\n")]

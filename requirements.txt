@@ -13,3 +13,4 @@ fpdf2>=2.7.0
 edge-tts>=6.1.0
 icalendar>=5.0.0
 recurring-ical-events>=2.1.0
+num2words>=0.5.13

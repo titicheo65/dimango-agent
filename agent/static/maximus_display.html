@@ -22,6 +22,7 @@
   #estado.pensando{border-color:#f5a623;color:#f5a623}
   #estado.ejecutando{border-color:#c77dff;color:#c77dff}
   #estado.respondiendo{border-color:#50e3c2;color:#50e3c2}
+  #estado.hablando{border-color:#50e3c2;color:#50e3c2}
   #estado.espera{border-color:#232838;color:#4d5566}
   #estado.offline{border-color:#ff5f56;color:#ff5f56}
 
@@ -37,7 +38,7 @@
     content:'';position:absolute;inset:-24px;border-radius:50%;
     border:1px dashed #1a1e28;animation:girar 30s linear infinite;
   }
-  #foto{width:100%;height:100%;object-fit:cover;border-radius:50%;filter:saturate(.9)}
+  #foto{width:100%;height:100%;object-fit:cover;border-radius:50%;filter:saturate(.9);transition:transform .06s ease-out}
 
   @keyframes pulso{0%,100%{box-shadow:0 0 0 0 rgba(80,227,194,.35)}50%{box-shadow:0 0 0 24px rgba(80,227,194,0)}}
   @keyframes girar{from{transform:rotate(0)}to{transform:rotate(360deg)}}
@@ -46,6 +47,7 @@
   .pensando #orbe{border-color:#f5a623;box-shadow:0 0 40px rgba(245,166,35,.5);animation:pulso 1.4s ease-in-out infinite}
   .ejecutando #orbe{border-color:#c77dff;box-shadow:0 0 40px rgba(199,125,255,.5)}
   .respondiendo #orbe{border-color:#50e3c2;box-shadow:0 0 40px rgba(80,227,194,.5)}
+  .hablando #orbe{border-color:#50e3c2;box-shadow:0 0 40px rgba(80,227,194,.5)}
 
   #detalle{max-width:640px;text-align:center;font-size:14px;color:#8b93a3;min-height:20px}
   #herramienta{font-size:12px;color:#c77dff;letter-spacing:1px;min-height:16px}
@@ -172,9 +174,69 @@ function conectar() {
       elDetalle.textContent = datos.texto;
       elHerramienta.textContent = '';
       agregarLog(`Respuesta: ${datos.texto.slice(0, 80)}`);
+    } else if (datos.tipo === 'hablando') {
+      reproducirAudio(datos.audio_b64);
+      agregarLog('Maximus está hablando');
     }
   };
 }
+
+// Reproduce el audio de la respuesta y anima el avatar según el volumen
+// REAL del audio en cada instante -- no es sincronía labial de verdad
+// (eso necesitaría un modelo de animación facial), es una aproximación
+// honesta: el avatar "vibra" más fuerte cuando el audio suena más fuerte.
+let audioCtx = null;
+function reproducirAudio(base64) {
+  try {
+    const bytes = atob(base64);
+    const buf = new Uint8Array(bytes.length);
+    for (let i = 0; i < bytes.length; i++) buf[i] = bytes.charCodeAt(i);
+    const blob = new Blob([buf], { type: 'audio/mpeg' });
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const fuente = audioCtx.createMediaElementSource(audio);
+    const analizador = audioCtx.createAnalyser();
+    analizador.fftSize = 256;
+    fuente.connect(analizador);
+    analizador.connect(audioCtx.destination);
+    const datosFrecuencia = new Uint8Array(analizador.frequencyBinCount);
+
+    ponEstado('hablando', 'HABLANDO');
+    clearTimeout(timeoutEspera);
+
+    let animando = true;
+    function cuadro() {
+      if (!animando) return;
+      analizador.getByteFrequencyData(datosFrecuencia);
+      const promedio = datosFrecuencia.reduce((a, b) => a + b, 0) / datosFrecuencia.length;
+      const escala = 1 + Math.min(promedio / 255, 1) * 0.08;
+      document.getElementById('foto').style.transform = `scale(${escala})`;
+      requestAnimationFrame(cuadro);
+    }
+    cuadro();
+
+    audio.onended = () => {
+      animando = false;
+      document.getElementById('foto').style.transform = 'scale(1)';
+      URL.revokeObjectURL(url);
+      reprogramarEspera();
+      ponEstado('espera', 'EN ESPERA');
+    };
+    audio.play().catch((e) => {
+      // Autoplay bloqueado por el navegador hasta el primer clic de la
+      // pantalla -- pasa en TVs/tablets si nadie tocó la pantalla todavía.
+      elDetalle.textContent = 'Toca la pantalla una vez para habilitar el audio.';
+      console.warn('No se pudo reproducir el audio automáticamente:', e);
+    });
+  } catch (e) {
+    console.error('Error reproduciendo audio:', e);
+  }
+}
+document.body.addEventListener('click', () => {
+  if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+}, { once: false });
 
 conectar();
 </script>
