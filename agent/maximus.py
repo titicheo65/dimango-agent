@@ -450,10 +450,14 @@ DIMANGOWORKING_GASTOS_URL = "https://dimangoworking.base44.app/functions/maximus
 DIMANGOWORKING_BODEGA_URL = "https://dimangoworking.base44.app/functions/maximusBodega"
 DIMANGOWORKING_SECRET = os.getenv("DIMANGOWORKING_MAXIMUS_SECRET", "")
 
-# URL secreta del calendario de Ricardo (iCloud, "dirección pública/privada
-# en formato iCal"). Es un secreto igual que una contraseña — vive solo en
-# el .env del servidor, nunca en el código ni en git.
-ICLOUD_CALENDAR_URL = os.getenv("ICLOUD_CALENDAR_URL", "")
+# URLs secretas de los calendarios de Ricardo (iCloud, "dirección pública/
+# privada en formato iCal"), separadas por coma — tiene varios calendarios
+# (Casa, Personal, Calendario) y cada uno tiene su propia URL. Son secretos
+# igual que una contraseña — viven solo en el .env del servidor, nunca en
+# el código ni en git.
+ICLOUD_CALENDAR_URLS = [
+    u.strip() for u in os.getenv("ICLOUD_CALENDAR_URLS", "").split(",") if u.strip()
+]
 
 CIUDADES = {
     "arica": (-18.4783, -70.3126), "santiago": (-33.4489, -70.6693),
@@ -778,8 +782,8 @@ async def ejecutar_herramienta(nombre: str, args: dict) -> str:
             return "\n".join(partes)
 
         if nombre == "calendario_ricardo":
-            if not ICLOUD_CALENDAR_URL:
-                return ("No puedo consultar el calendario: falta ICLOUD_CALENDAR_URL "
+            if not ICLOUD_CALENDAR_URLS:
+                return ("No puedo consultar el calendario: falta ICLOUD_CALENDAR_URLS "
                         "en el .env del servidor. Avísale a Ricardo.")
             import httpx
             import icalendar
@@ -799,23 +803,32 @@ async def ejecutar_herramienta(nombre: str, args: dict) -> str:
             except ValueError:
                 return f"Fecha de fin inválida: {args.get('fecha_fin')}. Usa formato YYYY-MM-DD."
 
-            url = ICLOUD_CALENDAR_URL.replace("webcal://", "https://", 1)
-            try:
-                async with httpx.AsyncClient(timeout=20, follow_redirects=True) as c:
-                    r = await c.get(url)
-            except httpx.RequestError as e:
-                return f"No pude conectar con el calendario: {e}"
-            if r.status_code != 200:
-                return f"El calendario respondió {r.status_code} al consultarlo."
-
-            try:
-                cal = icalendar.Calendar.from_ical(r.content)
-                eventos = recurring_ical_events.of(cal).between(fecha_inicio, fecha_fin + timedelta(days=1))
-            except Exception as e:
-                return f"No pude leer el calendario: {e}"
+            eventos = []
+            errores = []
+            async with httpx.AsyncClient(timeout=20, follow_redirects=True) as c:
+                for calendar_url in ICLOUD_CALENDAR_URLS:
+                    url = calendar_url.replace("webcal://", "https://", 1)
+                    try:
+                        r = await c.get(url)
+                    except httpx.RequestError as e:
+                        errores.append(f"no pude conectar ({e})")
+                        continue
+                    if r.status_code != 200:
+                        errores.append(f"respondió {r.status_code}")
+                        continue
+                    try:
+                        cal = icalendar.Calendar.from_ical(r.content)
+                        eventos.extend(
+                            recurring_ical_events.of(cal).between(fecha_inicio, fecha_fin + timedelta(days=1))
+                        )
+                    except Exception as e:
+                        errores.append(f"no pude leerlo ({e})")
 
             if not eventos:
-                return f"No hay nada agendado entre {fecha_inicio} y {fecha_fin}."
+                base = f"No hay nada agendado entre {fecha_inicio} y {fecha_fin}."
+                if errores:
+                    base += f" (aviso: {len(errores)} de {len(ICLOUD_CALENDAR_URLS)} calendarios fallaron: {'; '.join(errores)})"
+                return base
 
             def _clave(ev):
                 dt = ev.get("DTSTART").dt
@@ -829,6 +842,8 @@ async def ejecutar_herramienta(nombre: str, args: dict) -> str:
                 cuando = dt.strftime("%d-%m %H:%M") if hasattr(dt, "hour") else f"{dt.strftime('%d-%m')} (todo el día)"
                 lugar = ev.get("LOCATION")
                 partes.append(f"  {cuando} — {titulo}" + (f" ({lugar})" if lugar else ""))
+            if errores:
+                partes.append(f"\n(aviso: {len(errores)} de {len(ICLOUD_CALENDAR_URLS)} calendarios fallaron al consultarse — puede faltar algo)")
             return "\n".join(partes)
     except Exception as e:
         logger.error(f"[MAXIMUS] Herramienta {nombre} falló: {e}")
