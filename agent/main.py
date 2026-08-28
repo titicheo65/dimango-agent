@@ -503,6 +503,16 @@ async def maximus_display():
         raise HTTPException(status_code=404, detail="maximus_display.html no encontrado")
 
 
+@app.get("/maximus/foto")
+async def maximus_foto():
+    """La foto de Maximus (el perro) para el centro del Display."""
+    from fastapi.responses import FileResponse
+    ruta = os.path.join(os.path.dirname(__file__), "static", "img", "maximus-foto.jpeg")
+    if not os.path.exists(ruta):
+        raise HTTPException(status_code=404, detail="Foto no encontrada")
+    return FileResponse(ruta, media_type="image/jpeg")
+
+
 @app.post("/telegram/webhook")
 async def telegram_webhook(request: Request):
     """

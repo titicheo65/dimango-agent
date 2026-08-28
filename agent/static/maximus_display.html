@@ -27,29 +27,25 @@
 
   #centro{flex:1;display:flex;align-items:center;justify-content:center;position:relative}
   #orbe{
-    width:180px;height:180px;border-radius:50%;
-    border:2px solid #232838;position:relative;
+    width:320px;height:320px;border-radius:50%;
+    border:3px solid #232838;position:relative;
     display:flex;align-items:center;justify-content:center;
     transition:border-color .3s ease, box-shadow .3s ease;
+    overflow:hidden;
   }
   #orbe::before{
     content:'';position:absolute;inset:-24px;border-radius:50%;
     border:1px dashed #1a1e28;animation:girar 30s linear infinite;
   }
-  #orbe.activo{animation:pulso 1.4s ease-in-out infinite}
-  #nucleo{width:60px;height:60px;border-radius:50%;background:#232838;transition:background .3s ease, box-shadow .3s ease}
+  #foto{width:100%;height:100%;object-fit:cover;border-radius:50%;filter:saturate(.9)}
 
   @keyframes pulso{0%,100%{box-shadow:0 0 0 0 rgba(80,227,194,.35)}50%{box-shadow:0 0 0 24px rgba(80,227,194,0)}}
   @keyframes girar{from{transform:rotate(0)}to{transform:rotate(360deg)}}
 
-  .escuchando #orbe{border-color:#4a9eff}
-  .escuchando #nucleo{background:#4a9eff;box-shadow:0 0 30px #4a9eff}
-  .pensando #orbe{border-color:#f5a623}
-  .pensando #nucleo{background:#f5a623;box-shadow:0 0 30px #f5a623}
-  .ejecutando #orbe{border-color:#c77dff}
-  .ejecutando #nucleo{background:#c77dff;box-shadow:0 0 30px #c77dff}
-  .respondiendo #orbe{border-color:#50e3c2}
-  .respondiendo #nucleo{background:#50e3c2;box-shadow:0 0 30px #50e3c2}
+  .escuchando #orbe{border-color:#4a9eff;box-shadow:0 0 40px rgba(74,158,255,.5)}
+  .pensando #orbe{border-color:#f5a623;box-shadow:0 0 40px rgba(245,166,35,.5);animation:pulso 1.4s ease-in-out infinite}
+  .ejecutando #orbe{border-color:#c77dff;box-shadow:0 0 40px rgba(199,125,255,.5)}
+  .respondiendo #orbe{border-color:#50e3c2;box-shadow:0 0 40px rgba(80,227,194,.5)}
 
   #detalle{max-width:640px;text-align:center;font-size:14px;color:#8b93a3;min-height:20px}
   #herramienta{font-size:12px;color:#c77dff;letter-spacing:1px;min-height:16px}
@@ -77,7 +73,7 @@
   <div id="estado" class="espera">EN ESPERA</div>
 
   <div id="centro">
-    <div id="orbe"><div id="nucleo"></div></div>
+    <div id="orbe"><img id="foto" src="/maximus/foto" alt="Maximus"></div>
   </div>
 
   <div id="herramienta"></div>
