@@ -11,3 +11,5 @@ greenlet>=3.0.0
 tzdata>=2024.1
 fpdf2>=2.7.0
 edge-tts>=6.1.0
+icalendar>=5.0.0
+recurring-ical-events>=2.1.0

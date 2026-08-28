@@ -407,6 +407,28 @@ HERRAMIENTAS = [
             },
         },
     },
+    {
+        "name": "calendario_ricardo",
+        "description": (
+            "Agenda de Ricardo (calendario de Apple/iCloud). Solo lectura — "
+            "no crea ni modifica eventos. Úsala cuando pregunten qué tiene "
+            "agendado, si tiene algo hoy/mañana/esta semana, o a qué hora es "
+            "algo. Por defecto: desde hoy hasta 7 días adelante."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "fecha_inicio": {
+                    "type": "string",
+                    "description": "YYYY-MM-DD. Si no la dicen, hoy.",
+                },
+                "fecha_fin": {
+                    "type": "string",
+                    "description": "YYYY-MM-DD. Si no la dicen, 7 días desde fecha_inicio.",
+                },
+            },
+        },
+    },
 ]
 
 # Herramienta de servidor de Anthropic — Claude busca y trae los
@@ -427,6 +449,11 @@ DIMANGOTOGO_SECRET = os.getenv("DIMANGOTOGO_MAXIMUS_SECRET", "")
 DIMANGOWORKING_GASTOS_URL = "https://dimangoworking.base44.app/functions/maximusGastos"
 DIMANGOWORKING_BODEGA_URL = "https://dimangoworking.base44.app/functions/maximusBodega"
 DIMANGOWORKING_SECRET = os.getenv("DIMANGOWORKING_MAXIMUS_SECRET", "")
+
+# URL secreta del calendario de Ricardo (iCloud, "dirección pública/privada
+# en formato iCal"). Es un secreto igual que una contraseña — vive solo en
+# el .env del servidor, nunca en el código ni en git.
+ICLOUD_CALENDAR_URL = os.getenv("ICLOUD_CALENDAR_URL", "")
 
 CIUDADES = {
     "arica": (-18.4783, -70.3126), "santiago": (-33.4489, -70.6693),
@@ -748,6 +775,60 @@ async def ejecutar_herramienta(nombre: str, args: dict) -> str:
                                   + (f" — pedir a {it['proveedor_1']}" if it.get('proveedor_1') else ""))
             else:
                 partes.append("\nNada bajo el mínimo.")
+            return "\n".join(partes)
+
+        if nombre == "calendario_ricardo":
+            if not ICLOUD_CALENDAR_URL:
+                return ("No puedo consultar el calendario: falta ICLOUD_CALENDAR_URL "
+                        "en el .env del servidor. Avísale a Ricardo.")
+            import httpx
+            import icalendar
+            import recurring_ical_events
+            from datetime import date, timedelta
+
+            hoy = date.today()
+            try:
+                fecha_inicio = date.fromisoformat(args["fecha_inicio"]) if args.get("fecha_inicio") else hoy
+            except ValueError:
+                return f"Fecha de inicio inválida: {args.get('fecha_inicio')}. Usa formato YYYY-MM-DD."
+            try:
+                fecha_fin = (
+                    date.fromisoformat(args["fecha_fin"]) if args.get("fecha_fin")
+                    else fecha_inicio + timedelta(days=7)
+                )
+            except ValueError:
+                return f"Fecha de fin inválida: {args.get('fecha_fin')}. Usa formato YYYY-MM-DD."
+
+            url = ICLOUD_CALENDAR_URL.replace("webcal://", "https://", 1)
+            try:
+                async with httpx.AsyncClient(timeout=20, follow_redirects=True) as c:
+                    r = await c.get(url)
+            except httpx.RequestError as e:
+                return f"No pude conectar con el calendario: {e}"
+            if r.status_code != 200:
+                return f"El calendario respondió {r.status_code} al consultarlo."
+
+            try:
+                cal = icalendar.Calendar.from_ical(r.content)
+                eventos = recurring_ical_events.of(cal).between(fecha_inicio, fecha_fin + timedelta(days=1))
+            except Exception as e:
+                return f"No pude leer el calendario: {e}"
+
+            if not eventos:
+                return f"No hay nada agendado entre {fecha_inicio} y {fecha_fin}."
+
+            def _clave(ev):
+                dt = ev.get("DTSTART").dt
+                return dt.isoformat() if hasattr(dt, "isoformat") else str(dt)
+
+            eventos.sort(key=_clave)
+            partes = [f"Agenda del {fecha_inicio} al {fecha_fin}:"]
+            for ev in eventos:
+                titulo = str(ev.get("SUMMARY", "(sin título)"))
+                dt = ev.get("DTSTART").dt
+                cuando = dt.strftime("%d-%m %H:%M") if hasattr(dt, "hour") else f"{dt.strftime('%d-%m')} (todo el día)"
+                lugar = ev.get("LOCATION")
+                partes.append(f"  {cuando} — {titulo}" + (f" ({lugar})" if lugar else ""))
             return "\n".join(partes)
     except Exception as e:
         logger.error(f"[MAXIMUS] Herramienta {nombre} falló: {e}")
