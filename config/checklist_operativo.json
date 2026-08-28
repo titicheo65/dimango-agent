@@ -1,0 +1,131 @@
+{
+  "_comentario": "Configuración del checklist operativo por Telegram. 'dias': 0=lunes ... 6=domingo (omitir = todos los días). chat_id de cada grupo: agrega el bot al grupo, escríbele algo y revisa getUpdates para sacar el chat_id (es negativo).",
+
+  "grupos": {
+    "mall": { "chat_id": -5405765555, "nombre": "Mall" },
+    "playa": { "chat_id": -5325443904, "nombre": "Playa" }
+  },
+
+  "supervisor_chat_id": 8208785474,
+
+  "reenvio_minutos": 10,
+  "escalamiento_minutos": 20,
+  "posponer_minutos": 5,
+
+  "tareas": [
+    {
+      "id": "mall_apertura",
+      "texto": "Apertura:\n• Encender máquina de café (revisar nivel de agua antes)\n• Encender servidor y TV\n• Revisar temperatura vitrina de helados, congeladoras y refrigeradores\n• Revisar productos, pedidos, tareas y aseo de cierre",
+      "hora": "09:30",
+      "locales": ["mall"]
+    },
+    {
+      "id": "mall_deposito_cierre",
+      "texto": "Depositar el cierre del día anterior",
+      "hora": "09:55",
+      "locales": ["mall"]
+    },
+    {
+      "id": "mall_habilitacion",
+      "texto": "Habilitar atención:\n• Habilitar local y guinchas de la terraza, abrir ventanales\n• Encender horno de pizza\n• Abrir caja\n• Cargar el robot\n• Revisar /StockEnVivoMall antes de atender",
+      "hora": "10:30",
+      "locales": ["mall"]
+    },
+    {
+      "id": "mall_revision_tarde",
+      "texto": "Revisión de la tarde:\n• Revisar ventas y necesidades\n• Revisar stock\n• Revisar temperatura de helados, congeladores y vitrinas\n• Mise en place de cocina y bar",
+      "hora": "15:00",
+      "locales": ["mall"]
+    },
+    {
+      "id": "mall_ambientacion",
+      "texto": "Ambientación:\n• Encender luces y guirnaldas\n• Revisar el robot",
+      "hora": "18:15",
+      "locales": ["mall"]
+    },
+    {
+      "id": "mall_ultimo_pedido_cocina",
+      "texto": "Avisar a los clientes: último pedido de cocina",
+      "hora": "21:30",
+      "locales": ["mall"]
+    },
+    {
+      "id": "mall_ultimo_pedido_barra",
+      "texto": "Avisar a los clientes: último pedido de barra",
+      "hora": "22:00",
+      "locales": ["mall"]
+    },
+    {
+      "id": "mall_cierre",
+      "texto": "Cierre:\n• Firma del libro\n• Preparar retiro de personal\n• Revisión general — candado y puertas de congeladores cerrados",
+      "hora": "22:25",
+      "locales": ["mall"]
+    },
+    {
+      "id": "playa_cafe",
+      "texto": "Encender máquina de café (revisar nivel de agua antes)",
+      "hora": "10:00",
+      "locales": ["playa"]
+    },
+    {
+      "id": "playa_habilitacion",
+      "texto": "Habilitar atención:\n• Encender horno de pizza\n• Habilitar local y guinchas de la terraza, abrir ventanales\n• Abrir caja\n• Encender tótem, máquinas de pago, TV y letreros de helados\n• Música — instalar parlantes\n• LED publicitaria\n• Revisar /StockEnVivo antes de atender",
+      "hora": "11:00",
+      "locales": ["playa"]
+    },
+    {
+      "id": "playa_schop",
+      "texto": "Encender máquina de schop",
+      "hora": "13:00",
+      "locales": ["playa"]
+    },
+    {
+      "id": "playa_tarde",
+      "texto": "Tarde:\n• Revisar nivel de la cremera\n• Encender termo de agua caliente a 90°\n• Bajar cortina de helados\n• Revisar nivel de agua de la cafetera\n• Revisar stock de tortas\n• Revisar entrega de pedidos de cocina y bar",
+      "hora": "16:55",
+      "locales": ["playa"]
+    },
+    {
+      "id": "playa_ambientacion",
+      "texto": "Ambientación:\n• Encender luces, letrero DiMango y guirnaldas\n• Luces generales, 2do piso y quinchos\n• Revisar nivel de la cremera, agua café y agua termo",
+      "hora": "18:15",
+      "locales": ["playa"]
+    },
+    {
+      "id": "playa_aviso_colacion",
+      "texto": "Informar que nadie más puede salir a colación hasta las 22:45",
+      "hora": "20:00",
+      "locales": ["playa"]
+    },
+    {
+      "id": "playa_termo_colacion",
+      "texto": "Termo y colación:\n• Apagar termo (agua caliente)\n• Ya puedes salir a colación de nuevo",
+      "hora": "22:30",
+      "locales": ["playa"]
+    },
+    {
+      "id": "playa_pregunta_cierre_ljd",
+      "_comentario": "Lunes a jueves y domingo — se pregunta antes de medianoche, mismo día del turno",
+      "texto": "Preguntar al encargado de local si se cierra cocina, helados y bar",
+      "hora": "23:45",
+      "dias": [0, 1, 2, 3, 6],
+      "locales": ["playa"]
+    },
+    {
+      "id": "playa_revision_general_ljd",
+      "_comentario": "Cae pasada la medianoche: un día corrido respecto al de apertura (lunes cierra en día martes, etc.)",
+      "texto": "Revisión general de todo: candados, máquinas, tótem, TV, luces, moto, puertas y congeladores — todo cerrado",
+      "hora": "00:15",
+      "dias": [1, 2, 3, 4, 0],
+      "locales": ["playa"]
+    },
+    {
+      "id": "playa_cierre_vs",
+      "_comentario": "Viernes y sábado — cae pasada la medianoche, un día corrido (viernes cierra en sábado, sábado cierra en domingo)",
+      "texto": "Cierre:\n• Preguntar al encargado de local si se cierra cocina, helados y bar\n• Revisión general de todo: candados, máquinas, tótem, TV, luces, moto, puertas y congeladores — todo cerrado",
+      "hora": "00:45",
+      "dias": [5, 6],
+      "locales": ["playa"]
+    }
+  ]
+}

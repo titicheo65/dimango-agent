@@ -32,6 +32,8 @@ from agent import telegram_maximus as tg
 from agent.voz import sintetizar as sintetizar_voz
 from agent.alertas_venta import inicializar_alertas, loop_alertas_venta
 from agent.notas_personales import inicializar_notas, loop_recordatorios_personales
+from agent import checklist_operativo as checklist
+from agent import telegram_checklist as tg_checklist
 
 load_dotenv()
 
@@ -102,11 +104,17 @@ async def lifespan(app: FastAPI):
     tarea_alertas_venta = asyncio.create_task(loop_alertas_venta(proveedor))
     # Loop que avisa los recordatorios personales de Ricardo cuando vencen
     tarea_recordatorios_personales = asyncio.create_task(loop_recordatorios_personales(proveedor))
+    # Checklist operativo por Telegram: dispara las tareas según su horario
+    tarea_checklist_envios = asyncio.create_task(checklist.loop_envios_checklist(tg_checklist))
+    # Checklist operativo: reenvía a los 10 min, escala al supervisor a los 20
+    tarea_checklist_escalamiento = asyncio.create_task(checklist.loop_escalamiento_checklist(tg_checklist))
     yield
     tarea_colacion.cancel()
     tarea_recordatorio_diario.cancel()
     tarea_alertas_venta.cancel()
     tarea_recordatorios_personales.cancel()
+    tarea_checklist_envios.cancel()
+    tarea_checklist_escalamiento.cancel()
 
 
 # En producción la documentación de la API queda cerrada: el servicio está
@@ -489,6 +497,37 @@ async def telegram_webhook(request: Request):
             await tg.enviar_audio(chat_id, audio)
 
     logger.info(f"[MAXIMUS/TG] {chat_id}: {texto[:80]}")
+    return {"status": "ok"}
+
+
+@app.post("/telegram/checklist/webhook/{local}")
+async def telegram_checklist_webhook(local: str, request: Request):
+    """
+    Checklist operativo por Telegram: un bot POR LOCAL, cada uno solo en su
+    grupo (ej. Checklistmall_bot en /telegram/checklist/webhook/mall).
+
+    Bots y webhooks DISTINTOS del canal privado de Maximus (/telegram/webhook):
+    ese es 1:1 con el dueño; estos viven en grupos donde cualquiera del grupo
+    puede tocar los botones. Mezclarlos rompería ese aislamiento.
+    """
+    local = local.lower()
+    if not tg_checklist.configurado(local):
+        return {"status": f"checklist de '{local}' no configurado"}
+
+    try:
+        body = await request.json()
+    except Exception:
+        return {"status": "ok"}
+
+    callback = body.get("callback_query")
+    if callback:
+        await checklist.manejar_callback(callback, tg_checklist, local)
+        return {"status": "ok"}
+
+    mensaje = body.get("message")
+    if mensaje:
+        await checklist.manejar_mensaje_texto(mensaje, tg_checklist, local)
+
     return {"status": "ok"}
 
 
