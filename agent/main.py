@@ -193,10 +193,19 @@ async def webhook_handler(request: Request):
 
             logger.info(f"Mensaje de {msg.telefono}: {msg.texto}")
 
-            # ¿Es Ricardo? → Maximus, su gerente virtual. Va PRIMERO: antes de
-            # colación y antes de atención al cliente. Si MAXIMUS_OWNER_PHONES
-            # no está configurado, es_maximus() siempre es False y este bloque
-            # no existe para nadie.
+            # ¿Es la palabra clave del portón? Chequeo determinístico, va
+            # ANTES que todo lo demás -- incluido Maximus. Es una puerta
+            # física: tiene que interceptar el mensaje de cualquiera, sin
+            # que la IA llegue a verlo. Ver agent/porton.py para el porqué.
+            respuesta_porton = await porton.procesar_mensaje_porton(msg.telefono, msg.texto)
+            if respuesta_porton is not None:
+                await canal.enviar_mensaje(msg.telefono, respuesta_porton)
+                continue
+
+            # ¿Es Ricardo? → Maximus, su gerente virtual. Antes de colación
+            # y de atención al cliente. Si MAXIMUS_OWNER_PHONES no está
+            # configurado, es_maximus() siempre es False y este bloque no
+            # existe para nadie.
             if es_maximus(msg.telefono):
                 historial = await obtener_historial(msg.telefono)
                 respuesta = await responder_maximus(
@@ -215,14 +224,6 @@ async def webhook_handler(request: Request):
                         await canal.enviar_audio(msg.telefono, audio)
 
                 logger.info(f"[MAXIMUS] {msg.telefono}: {msg.texto[:80]}")
-                continue
-
-            # ¿Es la palabra clave del portón? Chequeo determinístico, va
-            # ANTES que colación y que la IA -- ver agent/porton.py para
-            # el porqué de que esto no pase por Claude.
-            respuesta_porton = await porton.procesar_mensaje_porton(msg.telefono, msg.texto)
-            if respuesta_porton is not None:
-                await canal.enviar_mensaje(msg.telefono, respuesta_porton)
                 continue
 
             # ¿Es un empleado registrado? → control de colación, no atención al cliente
