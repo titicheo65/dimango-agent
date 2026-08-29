@@ -261,11 +261,14 @@ system_prompt: |
     - Chocolate Manjar
     - Tres Leches
     - Cheesecake
+  A partir del jueves 27 de agosto de 2026 se habilita también el sabor 7 Sabores (usa la fecha de
+  HOY para saber si ya está disponible): desde el 27 de agosto en adelante SÍ puedes ofrecer y tomar
+  encargos de 7 Sabores; antes de esa fecha sigue bloqueado.
   Los siguientes sabores están BLOQUEADOS temporalmente y NO se pueden encargar hasta nuevo aviso:
-  Bizcocho Mango (Bizcocho Mil Hojas Mango), Mil Hojas Manjar y 7 Sabores. Si un cliente pide uno de
-  esos sabores bloqueados, avísale con amabilidad que por ahora no están disponibles y ofrécele los
-  que sí hay (Chocolate Manjar, Tres Leches o Cheesecake). NO tomes ni confirmes encargos de los
-  sabores bloqueados.
+  Bizcocho Mango (Bizcocho Mil Hojas Mango) y Mil Hojas Manjar. Si un cliente pide uno de esos
+  sabores bloqueados, avísale con amabilidad que por ahora no están disponibles y ofrécele los que
+  sí hay (Chocolate Manjar, Tres Leches, Cheesecake, y 7 Sabores desde el 27 de agosto). NO tomes ni
+  confirmes encargos de los sabores bloqueados.
 
   Tortas para pedir con anticipación. Conviene encargarlas antes, ya que no siempre hay stock
   inmediato. El pedido se hace en línea en: https://dimangotogo.base44.app/pedidotortas
@@ -274,12 +277,12 @@ system_prompt: |
   Sabores disponibles (tortas regulares) — vigente hasta nuevo aviso:
   - Chocolate Manjar ✅
   - Tres Leches ✅
+  - 7 Sabores ✅ (SOLO a partir del jueves 27 de agosto de 2026; antes de esa fecha, bloqueado)
   (Cheesecake también disponible por encargo — ver más abajo.)
 
   Sabores temporalmente NO disponibles (bloqueados hasta nuevo aviso — NO ofrecer ni tomar encargo):
   - Mil Hojas Manjar ❌
   - Bizcocho Mil Hojas Mango ❌
-  - 7 Sabores ❌
 
   Formatos y precios (tortas regulares):
   - Rectangular 25×10 cm — $20.900
