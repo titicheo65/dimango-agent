@@ -1,0 +1,12 @@
+{
+  "_comentario": "Lista de números autorizados a abrir el portón por WhatsApp, escribiendo la palabra clave dentro del horario configurado. Para desactivar a alguien: cambiar 'activo' a false, no borrar la fila (se pierde el historial de a quién se le dio acceso alguna vez).",
+
+  "palabra_clave": "porton",
+
+  "horario_inicio": "09:55",
+  "horario_fin": "10:05",
+
+  "autorizados": [
+    {"telefono": "", "nombre": "", "activo": true}
+  ]
+}

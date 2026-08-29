@@ -34,6 +34,7 @@ from agent.alertas_venta import inicializar_alertas, loop_alertas_venta
 from agent.notas_personales import inicializar_notas, loop_recordatorios_personales
 from agent import checklist_operativo as checklist
 from agent import telegram_checklist as tg_checklist
+from agent import porton
 
 load_dotenv()
 
@@ -214,6 +215,14 @@ async def webhook_handler(request: Request):
                         await canal.enviar_audio(msg.telefono, audio)
 
                 logger.info(f"[MAXIMUS] {msg.telefono}: {msg.texto[:80]}")
+                continue
+
+            # ¿Es la palabra clave del portón? Chequeo determinístico, va
+            # ANTES que colación y que la IA -- ver agent/porton.py para
+            # el porqué de que esto no pase por Claude.
+            respuesta_porton = await porton.procesar_mensaje_porton(msg.telefono, msg.texto)
+            if respuesta_porton is not None:
+                await canal.enviar_mensaje(msg.telefono, respuesta_porton)
                 continue
 
             # ¿Es un empleado registrado? → control de colación, no atención al cliente
