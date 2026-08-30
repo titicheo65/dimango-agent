@@ -592,32 +592,46 @@
     }catch(e){ el('reply').innerHTML='<span class="err">No pude contactar a Maximus ('+(e.message||e)+').</span>'; setState('espera'); }
     busy=false;
   }
-  // Web Audio: sobrevive al bloqueo de autoplay de Safari (se desbloquea con el primer gesto).
-  // Además engancha un AnalyserNode para animar el avatar con la voz real (efecto "hablando").
-  let actx=null, curSrc=null, analyser=null, ampRAF=null, ampVal=0;
-  function unlockAudio(){ try{ if(!actx) actx=new (window.AudioContext||window.webkitAudioContext)(); if(actx.state==='suspended') actx.resume(); }catch(e){} }
-  function ensureAnalyser(){ if(actx && !analyser){ try{ analyser=actx.createAnalyser(); analyser.fftSize=256; analyser.smoothingTimeConstant=0.7; analyser.connect(actx.destination); }catch(e){} } }
+  // Reproducción robusta de la voz + animación del avatar.
+  // Un <audio> persistente ruteado por Web Audio: suena en Safari (Mac e iPhone) y Chrome
+  // aun después de un await, y el AnalyserNode alimenta la animación "hablando".
+  // Se "desbloquea" con un clip de silencio en el primer gesto (toque del micrófono).
+  const SILENCIO='data:audio/wav;base64,UklGRrQBAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YZABAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIA=';
+  let actx=null, analyser=null, ampRAF=null, ampVal=0, ttsEl=null, ttsNode=null, audioListo=false;
+  function ensureAudio(){
+    try{ if(!actx) actx=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){}
+    if(!ttsEl){ ttsEl=new Audio(); ttsEl.setAttribute('playsinline',''); }
+    try{ if(actx && ttsEl && !ttsNode){ ttsNode=actx.createMediaElementSource(ttsEl);
+      analyser=actx.createAnalyser(); analyser.fftSize=256; analyser.smoothingTimeConstant=0.7;
+      ttsNode.connect(analyser); analyser.connect(actx.destination); } }catch(e){}
+  }
+  function unlockAudio(){ ensureAudio();
+    try{ if(actx && actx.state==='suspended') actx.resume(); }catch(e){}
+    if(!audioListo && ttsEl){ try{ ttsEl.src=SILENCIO; const p=ttsEl.play();
+      if(p && p.then){ p.then(()=>{ audioListo=true; try{ttsEl.pause();}catch(e){} }).catch(()=>{}); } else { audioListo=true; } }catch(e){} }
+  }
   function startSpeakAnim(){ const wrap=el('avatarwrap'); if(!wrap||!analyser) return;
     const data=new Uint8Array(analyser.frequencyBinCount);
     const loop=()=>{ analyser.getByteFrequencyData(data);
       let sum=0; for(let i=0;i<data.length;i++) sum+=data[i];
       const raw=Math.min(1,(sum/data.length)/95);
-      ampVal = ampVal*0.55 + raw*0.45;                 // suavizado para que no tiemble
+      ampVal = ampVal*0.55 + raw*0.45;
       wrap.style.setProperty('--amp', ampVal.toFixed(3));
       ampRAF=requestAnimationFrame(loop); };
     loop(); }
   function stopSpeakAnim(){ if(ampRAF){ cancelAnimationFrame(ampRAF); ampRAF=null; } ampVal=0; const wrap=el('avatarwrap'); if(wrap) wrap.style.setProperty('--amp','0'); }
-  function stopAudio(){ try{ if(curSrc){ curSrc.onended=null; curSrc.stop(); curSrc=null; } }catch(e){} stopSpeakAnim(); }
-  function b64buf(b64){ const bin=atob(b64), n=bin.length, a=new Uint8Array(n); for(let i=0;i<n;i++) a[i]=bin.charCodeAt(i); return a.buffer; }
-  async function playAudio(b64){ stopAudio();
-    try{ unlockAudio(); ensureAnalyser();
-      if(actx){ const buf=await actx.decodeAudioData(b64buf(b64)); const s=actx.createBufferSource(); s.buffer=buf;
-        if(analyser){ s.connect(analyser); } else { s.connect(actx.destination); }
-        s.onended=()=>{ curSrc=null; stopSpeakAnim(); setState('espera'); }; curSrc=s; s.start(0); startSpeakAnim(); return; }
-    }catch(e){}
-    // Respaldo: elemento <audio> por si Web Audio no está disponible (sin animación reactiva).
-    try{ const a=new Audio('data:audio/mp3;base64,'+b64); a.onended=()=>setState('espera'); a.play().catch(()=>setState('espera')); }
-    catch(e){ setState('espera'); }
+  function stopAudio(){ try{ if(ttsEl) ttsEl.pause(); }catch(e){} stopSpeakAnim(); }
+  async function playAudio(b64){
+    ensureAudio();
+    try{ if(actx && actx.state==='suspended') await actx.resume(); }catch(e){}
+    stopSpeakAnim();
+    if(!ttsEl){ setState('espera'); return; }
+    try{ ttsEl.pause(); }catch(e){}
+    ttsEl.src='data:audio/mpeg;base64,'+b64;
+    ttsEl.onended=()=>{ stopSpeakAnim(); setState('espera'); };
+    try{ const p=ttsEl.play();
+      if(p && p.then){ p.then(()=>startSpeakAnim()).catch(()=>{ setState('espera'); }); } else { startSpeakAnim(); }
+    }catch(e){ setState('espera'); }
   }
 
   // ---------- reconocimiento de voz (navegador) ----------
