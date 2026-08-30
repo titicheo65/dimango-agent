@@ -582,6 +582,15 @@ async def maximus_panel_grafo(request: Request):
     return JSONResponse(await paneles.grafo_panel(), headers={"Cache-Control": "no-store"})
 
 
+@app.get("/maximus/panel/agentes")
+async def maximus_panel_agentes(request: Request):
+    """Roster de agentes de Maximus + estado (incluye tareas programadas Windows)."""
+    if not _maximus_token_ok(request):
+        raise HTTPException(status_code=401, detail="No autorizado")
+    from agent import paneles
+    return JSONResponse(await paneles.agentes_panel(), headers={"Cache-Control": "no-store"})
+
+
 @app.get("/maximus/foto")
 async def maximus_foto():
     """La foto de Maximus (el perro) para el centro del Display."""

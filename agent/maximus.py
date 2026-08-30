@@ -452,12 +452,14 @@ HERRAMIENTAS = [
                 },
                 "panel": {
                     "type": "string",
-                    "enum": ["ventas", "top_productos", "checklist", "alertas", "correo", "calendario", "memoria", "todos"],
+                    "enum": ["ventas", "top_productos", "checklist", "alertas", "correo", "calendario", "memoria", "agentes", "todos"],
                     "description": (
                         "Qué panel. 'ventas' del día por local, 'top_productos' los más vendidos, "
-                        "'checklist' insumos a reponer, 'alertas', 'correo', 'calendario', y 'memoria' "
+                        "'checklist' insumos a reponer, 'alertas', 'correo', 'calendario', 'memoria' "
                         "(tu grafo de memoria: se ilumina con las notas que usas al responder — ábrelo "
-                        "si Ricardo pregunta qué recuerdas, de dónde sacas algo, o pide ver tu cerebro/memoria). "
+                        "si Ricardo pregunta qué recuerdas, de dónde sacas algo, o pide ver tu cerebro/memoria), "
+                        "y 'agentes' (roster de tus agentes/automatizaciones y su estado — ábrelo si Ricardo "
+                        "pide ver 'mis agentes', 'tus agentes' o qué está corriendo). "
                         "Para accion 'cerrar' usa 'todos' para cerrar todo."
                     ),
                 },

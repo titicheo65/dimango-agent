@@ -254,3 +254,69 @@ async def grafo_panel() -> dict:
         if a.get("de") and a.get("a")
     ]
     return {"nodos": nodos, "aristas": aristas}
+
+
+# ── Agentes de Maximus (núcleo + canales + automatizaciones) ──────────────
+def _estado_tareas_windows(nombres: list) -> dict:
+    """Estado real de las Tareas Programadas de Windows (schtasks). En Mac/Linux
+    o si falla, devuelve vacío y esas tareas quedan como 'desconocido'."""
+    import subprocess
+    import csv
+    import io
+    out = {}
+    try:
+        r = subprocess.run(["schtasks", "/query", "/fo", "CSV", "/nh"],
+                           capture_output=True, text=True, timeout=10)
+        if r.returncode != 0:
+            return out
+        mapa = {"ready": "activo", "running": "corriendo", "disabled": "apagado"}
+        for row in csv.reader(io.StringIO(r.stdout)):
+            if len(row) >= 3:
+                nombre = row[0].lstrip("\\").strip()
+                estado = row[2].strip().lower()
+                if nombre in nombres:
+                    out[nombre] = mapa.get(estado, estado or "desconocido")
+    except Exception as e:
+        logger.info(f"[PANELES] schtasks no disponible: {e}")
+    return out
+
+
+async def agentes_panel() -> dict:
+    """Roster de los 'agentes' de Maximus con su estado."""
+    agentes = [
+        {"nombre": "Cerebro", "rol": "Orquestador — Claude + herramientas", "estado": "activo", "grupo": "Núcleo"},
+        {"nombre": "Voz", "rol": "Escucha y habla (STT + TTS)", "estado": "activo", "grupo": "Núcleo"},
+        {"nombre": "Memoria", "rol": "Grafo de conocimiento", "estado": "activo", "grupo": "Núcleo"},
+        {"nombre": "Visión", "rol": "Lee pantallas e imágenes", "estado": "activo", "grupo": "Núcleo"},
+    ]
+
+    def canal(nombre, envkey, rol):
+        return {"nombre": nombre, "rol": rol, "estado": "activo" if os.getenv(envkey) else "apagado", "grupo": "Canales"}
+
+    agentes += [
+        {"nombre": "WhatsApp", "rol": "Clientes + Maximus", "estado": "activo", "grupo": "Canales"},
+        canal("Instagram", "IG_ACCESS_TOKEN", "DM Instagram"),
+        canal("Messenger", "MESSENGER_PAGE_TOKEN", "Mensajes Facebook"),
+        canal("Telegram", "TELEGRAM_BOT_TOKEN", "Canal remoto de Maximus"),
+    ]
+
+    agentes += [
+        {"nombre": "Alertas de venta", "rol": "Vigila productos y umbrales", "estado": "activo", "grupo": "Automatizaciones"},
+        {"nombre": "Colación", "rol": "Control de descansos del personal", "estado": "activo", "grupo": "Automatizaciones"},
+        {"nombre": "Checklist operativo", "rol": "Reenvíos y escalamiento", "estado": "activo", "grupo": "Automatizaciones"},
+    ]
+
+    # Tareas programadas de Windows — estado real
+    tareas = {
+        "Maximus-Advisor": "Advisor diario (3 recomendaciones)",
+        "Maximus-Correo": "Aviso de correo nuevo",
+        "Maximus-Vigilante": "Vigilante del sistema",
+        "Maximus-Sync-Memoria": "Sincroniza memoria",
+        "DimangoChecklistReposicion": "Checklist de reposición",
+    }
+    estados = await asyncio.to_thread(_estado_tareas_windows, list(tareas.keys()))
+    for tn, rol in tareas.items():
+        agentes.append({"nombre": rol, "rol": "Tarea programada", "estado": estados.get(tn, "desconocido"), "grupo": "Automatizaciones"})
+
+    activos = sum(1 for a in agentes if a["estado"] in ("activo", "corriendo"))
+    return {"agentes": agentes, "activos": activos, "total": len(agentes)}

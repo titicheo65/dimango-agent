@@ -129,6 +129,17 @@
   .cal .time{font-family:var(--mono);color:var(--accent);min-width:88px;flex:none}
   .cal .ev{color:var(--muted)}
   .muted{color:var(--faint);font-size:13px}
+  .agrp{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin:12px 0 5px}
+  .agrp:first-child{margin-top:0}
+  .agente{display:flex;align-items:center;gap:9px;padding:6px 0;border-bottom:1px solid var(--line-soft);font-size:13px}
+  .agente:last-child{border-bottom:0}
+  .agente .adot{width:8px;height:8px;border-radius:50%;background:var(--faint);flex:none}
+  .agente .adot.good{background:var(--good);box-shadow:0 0 7px var(--good)}
+  .agente .adot.warn{background:var(--warn);box-shadow:0 0 7px var(--warn)}
+  .agente .adot.crit{background:var(--crit)}
+  .agente .an{color:var(--ink);font-weight:600;flex:none}
+  .agente .ar{color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+  .agente .ae{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--faint);text-transform:uppercase;flex:none}
   .skel{color:var(--faint);font-family:var(--mono);font-size:12px;letter-spacing:.05em}
   .err{color:var(--crit);font-size:13px}
 
@@ -276,7 +287,7 @@
   }
   function maxiPanel(tipo, on){ const p=panels.find(x=>x.tipo===(tipo||'').toLowerCase()); if(p){ panels.forEach(x=>x.maxi=false); p.maxi = on!==false; } render(); syncStage(); }
 
-  const TITLES = {ventas:'Ventas hoy', top_productos:'Top productos', checklist:'Checklist', alertas:'Alertas', correo:'Correos', calendario:'Calendario', memoria:'Memoria'};
+  const TITLES = {ventas:'Ventas hoy', top_productos:'Top productos', checklist:'Checklist', alertas:'Alertas', correo:'Correos', calendario:'Calendario', memoria:'Memoria', agentes:'Agentes'};
   function render(){
     panelsEl.innerHTML='';
     panels.forEach(p=>{
@@ -380,6 +391,13 @@
       return m.slice(0,8).map(x=>`<div class="mail"><span class="from">${x.de||'—'}</span><span class="subj">${x.asunto||''}</span></div>`).join(''); },
     async calendario(p){ const d=await getJSON('/maximus/panel/calendario'); const ev=(d.eventos||[]); if(!ev.length) return '<div class="muted">Sin eventos próximos.</div>';
       return `<div class="cal">`+ev.slice(0,10).map(x=>`<div class="slot"><span class="time">${x.cuando||''}</span><span class="ev">${x.titulo||''}</span></div>`).join('')+`</div>`; },
+    async agentes(p){ const d=await getJSON('/maximus/panel/agentes'); const a=d.agentes||[]; if(!a.length) return '<div class="muted">Sin agentes.</div>';
+      const dot=e=> e==='activo'?'good': e==='corriendo'?'warn': e==='apagado'?'crit':'';
+      const grupos={}; a.forEach(x=>{ const g=x.grupo||'Otros'; (grupos[g]=grupos[g]||[]).push(x); });
+      let out='';
+      Object.keys(grupos).forEach(g=>{ out+=`<div class="agrp">${g}</div>`;
+        grupos[g].forEach(x=>{ out+=`<div class="agente"><span class="adot ${dot(x.estado)}"></span><span class="an">${x.nombre}</span><span class="ar">${x.rol}</span><span class="ae">${x.estado}</span></div>`; }); });
+      return out; },
     async memoria(p, body){
       if(typeof d3==='undefined') return '<div class="muted">Cargando la librería del grafo… recarga si tarda.</div>';
       let data; try{ data=await getJSON('/maximus/panel/grafo'); }catch(e){ return '<div class="err">No pude cargar la memoria ('+(e.message||e)+').</div>'; }
