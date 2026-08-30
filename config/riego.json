@@ -1,0 +1,12 @@
+{
+  "_comentario": "Lista de numeros autorizados a controlar el riego de la parcela por WhatsApp. Sin horario -- este dispositivo es libre. Para desactivar a alguien: cambiar activo a false, no borrar la fila.",
+  "palabra_on": "agua",
+  "palabra_off": "no agua",
+  "autorizados": [
+    {"telefono": "56974965689", "nombre": "ricardo", "activo": true},
+    {"telefono": "56987564150", "nombre": "consu", "activo": true},
+    {"telefono": "56939339149", "nombre": "fran", "activo": true},
+    {"telefono": "56950681459", "nombre": "lisbeth", "activo": true},
+    {"telefono": "56994248293", "nombre": "giorgi", "activo": true}
+  ]
+}

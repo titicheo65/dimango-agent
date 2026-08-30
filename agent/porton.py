@@ -16,34 +16,25 @@ registra en la tabla `porton_log`, con quién y cuándo. Es una puerta física:
 siempre tiene que poder responderse "quién la abrió y cuándo".
 """
 
-import hashlib
-import hmac
 import json
 import logging
 import os
-import time
 import unicodedata
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-import httpx
 from sqlalchemy import String, DateTime, select
 from sqlalchemy.orm import Mapped, mapped_column
 
 from agent.memory import Base, async_session
+from agent import tuya_client
 
 logger = logging.getLogger("agentkit")
 
 RUTA_CONFIG = "config/porton.json"
 TZ_CHILE = ZoneInfo("America/Santiago")
 
-TUYA_CLIENT_ID = os.getenv("TUYA_CLIENT_ID", "")
-TUYA_CLIENT_SECRET = os.getenv("TUYA_CLIENT_SECRET", "")
 TUYA_DEVICE_ID = os.getenv("TUYA_DEVICE_ID", "")
-# Data center de Tuya -- EEUU por defecto; si el proyecto está en otra
-# región (China, Europa, India) hay que cambiar esto. Se ve en el panel
-# de iot.tuya.com, en el detalle del Cloud Project.
-TUYA_REGION_URL = os.getenv("TUYA_REGION_URL", "https://openapi.tuyaus.com")
 
 
 class PortonLog(Base):
@@ -107,74 +98,10 @@ async def _registrar(telefono: str, resultado: str, detalle: str = "") -> None:
         await session.commit()
 
 
-# ════════════════════════════════════════════════════════════
-# Tuya Cloud API — firma HMAC-SHA256 según su esquema v1.0
-# ════════════════════════════════════════════════════════════
-
-def _firmar(mensaje: str) -> str:
-    return hmac.new(
-        TUYA_CLIENT_SECRET.encode("utf-8"), mensaje.encode("utf-8"), hashlib.sha256
-    ).hexdigest().upper()
-
-
-async def _obtener_token_tuya(cliente: httpx.AsyncClient) -> str | None:
-    t = str(int(time.time() * 1000))
-    metodo, ruta = "GET", "/v1.0/token?grant_type=1"
-    sha_cuerpo = hashlib.sha256(b"").hexdigest()
-    string_a_firmar = f"{metodo}\n{sha_cuerpo}\n\n{ruta}"
-    firma = _firmar(TUYA_CLIENT_ID + t + string_a_firmar)
-
-    headers = {
-        "client_id": TUYA_CLIENT_ID, "sign": firma, "t": t,
-        "sign_method": "HMAC-SHA256",
-    }
-    try:
-        r = await cliente.get(TUYA_REGION_URL + ruta, headers=headers, timeout=15)
-        datos = r.json()
-        if not datos.get("success"):
-            logger.error(f"[PORTON] Tuya rechazó el token: {datos}")
-            return None
-        return datos["result"]["access_token"]
-    except Exception as e:
-        logger.error(f"[PORTON] Error pidiendo token a Tuya: {e}")
-        return None
-
-
-async def _abrir_interruptor(cliente: httpx.AsyncClient, access_token: str) -> bool:
-    t = str(int(time.time() * 1000))
-    metodo, ruta = "POST", f"/v1.0/iot-03/devices/{TUYA_DEVICE_ID}/commands"
-    cuerpo = {"commands": [{"code": "switch_1", "value": True}]}
-    cuerpo_json = json.dumps(cuerpo, separators=(",", ":"))
-    sha_cuerpo = hashlib.sha256(cuerpo_json.encode("utf-8")).hexdigest()
-    string_a_firmar = f"{metodo}\n{sha_cuerpo}\n\n{ruta}"
-    firma = _firmar(TUYA_CLIENT_ID + access_token + t + string_a_firmar)
-
-    headers = {
-        "client_id": TUYA_CLIENT_ID, "access_token": access_token,
-        "sign": firma, "t": t, "sign_method": "HMAC-SHA256",
-        "Content-Type": "application/json",
-    }
-    try:
-        r = await cliente.post(TUYA_REGION_URL + ruta, headers=headers, content=cuerpo_json, timeout=15)
-        datos = r.json()
-        if not datos.get("success"):
-            logger.error(f"[PORTON] Tuya rechazó el comando: {datos}")
-            return False
-        return True
-    except Exception as e:
-        logger.error(f"[PORTON] Error mandando el comando a Tuya: {e}")
-        return False
-
-
 async def _abrir_porton_tuya() -> tuple[bool, str]:
-    if not (TUYA_CLIENT_ID and TUYA_CLIENT_SECRET and TUYA_DEVICE_ID):
-        return False, "Falta configurar TUYA_CLIENT_ID/SECRET/DEVICE_ID en el .env"
-    async with httpx.AsyncClient() as cliente:
-        token = await _obtener_token_tuya(cliente)
-        if not token:
-            return False, "No se pudo autenticar con Tuya"
-        ok = await _abrir_interruptor(cliente, token)
-        return (True, "") if ok else (False, "Tuya rechazó el comando de apertura")
+    if not TUYA_DEVICE_ID:
+        return False, "Falta configurar TUYA_DEVICE_ID en el .env"
+    return await tuya_client.enviar_comando(TUYA_DEVICE_ID, "switch_1", True)
 
 
 # ════════════════════════════════════════════════════════════

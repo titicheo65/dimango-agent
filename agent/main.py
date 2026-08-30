@@ -35,6 +35,7 @@ from agent.notas_personales import inicializar_notas, loop_recordatorios_persona
 from agent import checklist_operativo as checklist
 from agent import telegram_checklist as tg_checklist
 from agent import porton
+from agent import riego
 
 load_dotenv()
 
@@ -204,6 +205,13 @@ async def webhook_handler(request: Request):
             respuesta_porton = await porton.procesar_mensaje_porton(msg.telefono, msg.texto)
             if respuesta_porton is not None:
                 await canal.enviar_mensaje(msg.telefono, respuesta_porton)
+                continue
+
+            # ¿Es la palabra clave del riego de la parcela? Mismo criterio
+            # que el portón -- determinístico, antes que Maximus.
+            respuesta_riego = await riego.procesar_mensaje_riego(msg.telefono, msg.texto)
+            if respuesta_riego is not None:
+                await canal.enviar_mensaje(msg.telefono, respuesta_riego)
                 continue
 
             # ¿Es Ricardo? → Maximus, su gerente virtual. Antes de colación
