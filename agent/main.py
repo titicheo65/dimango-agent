@@ -90,6 +90,8 @@ async def lifespan(app: FastAPI):
     await migrar_esquema()
     await inicializar_alertas()
     await inicializar_notas()
+    from agent.delegaciones import inicializar_delegaciones
+    await inicializar_delegaciones()
     logger.info("Base de datos inicializada")
     logger.info(f"Servidor AgentKit corriendo en puerto {PORT}")
     logger.info(f"Proveedor de WhatsApp: {proveedor.__class__.__name__}")
@@ -589,6 +591,15 @@ async def maximus_panel_agentes(request: Request):
         raise HTTPException(status_code=401, detail="No autorizado")
     from agent import paneles
     return JSONResponse(await paneles.agentes_panel(), headers={"Cache-Control": "no-store"})
+
+
+@app.get("/maximus/panel/delegaciones")
+async def maximus_panel_delegaciones(request: Request):
+    """Tareas que Maximus delegó a sus agentes, con estado."""
+    if not _maximus_token_ok(request):
+        raise HTTPException(status_code=401, detail="No autorizado")
+    from agent import paneles
+    return JSONResponse(await paneles.delegaciones_panel(), headers={"Cache-Control": "no-store"})
 
 
 @app.post("/maximus/escuchar")

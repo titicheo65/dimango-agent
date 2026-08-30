@@ -320,3 +320,20 @@ async def agentes_panel() -> dict:
 
     activos = sum(1 for a in agentes if a["estado"] in ("activo", "corriendo"))
     return {"agentes": agentes, "activos": activos, "total": len(agentes)}
+
+
+# ── Delegaciones (tareas que Maximus mandó a sus agentes) ─────────────────
+async def delegaciones_panel() -> dict:
+    from datetime import timezone
+    from agent.maximus import TZ_CHILE
+    from agent.delegaciones import listar_delegaciones
+    ds = await listar_delegaciones(30)
+    out = []
+    for d in ds:
+        try:
+            cuando = d.creado_en.replace(tzinfo=timezone.utc).astimezone(TZ_CHILE).strftime("%d-%m %H:%M")
+        except Exception:
+            cuando = ""
+        out.append({"agente": d.agente, "tarea": d.tarea, "estado": d.estado,
+                    "resultado": d.resultado, "cuando": cuando})
+    return {"delegaciones": out}

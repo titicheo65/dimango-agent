@@ -453,7 +453,7 @@ HERRAMIENTAS = [
                 "panel": {
                     "type": "string",
                     "enum": ["ventas", "top_productos", "checklist", "alertas", "correo", "calendario",
-                             "memoria", "agentes", "comparativa", "actividad", "resumen", "todos"],
+                             "memoria", "agentes", "comparativa", "actividad", "resumen", "delegaciones", "todos"],
                     "description": (
                         "Qué panel. 'ventas' del día por local, 'top_productos' los más vendidos, "
                         "'checklist' insumos a reponer, 'alertas', 'correo', 'calendario', 'memoria' "
@@ -471,6 +471,33 @@ HERRAMIENTAS = [
                 },
             },
             "required": ["accion"],
+        },
+    },
+    {
+        "name": "delegar",
+        "description": (
+            "Delega una tarea a uno de tus agentes/automatizaciones. Úsala cuando Ricardo diga "
+            "'pídele a X que...', 'delega esto', 'corre el advisor', 'revisa los correos ahora', "
+            "'lanza el checklist de reposición'. Agentes que se LANZAN de verdad al toque: "
+            "'advisor' (genera 3 recomendaciones, le llegan por Telegram), 'correo' (revisa correos ahora), "
+            "'vigilante' (chequea el sistema), 'checklist' o 'reposicion' (checklist de reposición). "
+            "Para cualquier otra cosa que aún no sea automática (ej: 'que investiguen el problema de "
+            "impresión'), igual regístrala como delegación pendiente para dejar constancia. "
+            "Siempre confirma por voz qué delegaste y a quién."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "agente": {
+                    "type": "string",
+                    "description": "A quién: advisor | correo | vigilante | checklist | reposicion, o el nombre libre del agente/persona/área.",
+                },
+                "tarea": {
+                    "type": "string",
+                    "description": "Qué se pide hacer (texto libre). Para los agentes automáticos puede ir vacío.",
+                },
+            },
+            "required": ["agente"],
         },
     },
 ]
@@ -515,6 +542,22 @@ async def _http_json(url: str):
     async with httpx.AsyncClient(timeout=20) as c:
         r = await c.get(url)
         return r.json() if r.status_code == 200 else None
+
+
+def _lanzar_tarea_windows(task: str) -> tuple[bool, str]:
+    """Corre una Tarea Programada de Windows al toque (schtasks /run). Fuera de
+    Windows o si falla, devuelve (False, motivo)."""
+    import subprocess
+    try:
+        r = subprocess.run(["schtasks", "/run", "/tn", task],
+                           capture_output=True, text=True, timeout=15)
+        if r.returncode == 0:
+            return True, "Corriendo ahora."
+        return False, (r.stderr or r.stdout or "no se pudo").strip()[:140]
+    except FileNotFoundError:
+        return False, "schtasks no disponible (no es Windows)."
+    except Exception as e:
+        return False, str(e)[:140]
 
 
 async def ejecutar_herramienta(nombre: str, args: dict) -> str:
@@ -908,6 +951,35 @@ async def ejecutar_herramienta(nombre: str, args: dict) -> str:
             if accion in ("maximizar", "restaurar"):
                 return f"{'Maximicé' if accion == 'maximizar' else 'Restauré'} el panel de {panel}."
             return f"Abrí el panel de {panel} en la pantalla" + (f" ({local})." if local else ".")
+
+        if nombre == "delegar":
+            import asyncio
+            from agent import eventos
+            from agent.delegaciones import registrar_delegacion
+            agente = (args.get("agente") or "").strip().lower()
+            tarea = (args.get("tarea") or "").strip()
+            AGENTES_TAREA = {
+                "advisor": ("Maximus-Advisor", "Advisor (3 recomendaciones)"),
+                "correo": ("Maximus-Correo", "Revisar correo"),
+                "vigilante": ("Maximus-Vigilante", "Vigilante del sistema"),
+                "checklist": ("DimangoChecklistReposicion", "Checklist de reposición"),
+                "reposicion": ("DimangoChecklistReposicion", "Checklist de reposición"),
+            }
+            if agente in AGENTES_TAREA:
+                task_win, etiqueta = AGENTES_TAREA[agente]
+                ok, detalle = await asyncio.to_thread(_lanzar_tarea_windows, task_win)
+                await registrar_delegacion(etiqueta, tarea or etiqueta, "lanzado" if ok else "error", detalle)
+                await eventos.publicar("panel", accion="abrir", panel="delegaciones")
+                if ok:
+                    return f"Listo, lancé al agente {etiqueta}. {detalle}"
+                return f"No pude lanzar {etiqueta}: {detalle}. Lo dejé registrado igual."
+            if not agente and not tarea:
+                return "¿Qué querés delegar y a quién?"
+            await registrar_delegacion(agente or "por asignar", tarea or agente, "pendiente",
+                                       "Registrada — pendiente de ejecutar.")
+            await eventos.publicar("panel", accion="abrir", panel="delegaciones")
+            destino = agente if (agente and tarea) else ""
+            return f'Anoté la delegación: "{tarea or agente}"' + (f" → {destino}." if destino else ".") + " Queda pendiente."
 
     except Exception as e:
         logger.error(f"[MAXIMUS] Herramienta {nombre} falló: {e}")

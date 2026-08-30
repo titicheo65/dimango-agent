@@ -147,6 +147,16 @@
   .agente .an{color:var(--ink);font-weight:600;flex:none}
   .agente .ar{color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
   .agente .ae{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--faint);text-transform:uppercase;flex:none}
+  .deleg{display:flex;align-items:center;gap:11px;padding:9px 0;border-bottom:1px solid var(--line-soft)}
+  .deleg:last-child{border-bottom:0}
+  .dstate{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;padding:3px 8px;border-radius:999px;flex:none;border:1px solid var(--line);color:var(--muted)}
+  .dstate.good{color:var(--good);border-color:#245c48;background:rgba(65,209,154,.08)}
+  .dstate.warn{color:var(--warn);border-color:#5a4a24;background:rgba(244,181,69,.08)}
+  .dstate.crit{color:var(--crit);border-color:#6b2e2c;background:rgba(255,111,107,.08)}
+  .deleg .dinfo{flex:1;min-width:0}
+  .deleg .dt{color:var(--ink);font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .deleg .dm{color:var(--faint);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .deleg .dwhen{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--faint);flex:none}
   .cmp{display:flex;gap:16px;align-items:flex-end}
   .cmpcol{flex:1;text-align:center}
   .cmph{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin-bottom:8px}
@@ -335,7 +345,7 @@
   }
   function maxiPanel(tipo, on){ const p=panels.find(x=>x.tipo===(tipo||'').toLowerCase()); if(p){ panels.forEach(x=>x.maxi=false); p.maxi = on!==false; } render(); syncStage(); }
 
-  const TITLES = {ventas:'Ventas hoy', top_productos:'Top productos', checklist:'Checklist', alertas:'Alertas', correo:'Correos', calendario:'Calendario', memoria:'Memoria', agentes:'Agentes', comparativa:'Mall ⇄ Playa', actividad:'Actividad', resumen:'Resumen del día'};
+  const TITLES = {ventas:'Ventas hoy', top_productos:'Top productos', checklist:'Checklist', alertas:'Alertas', correo:'Correos', calendario:'Calendario', memoria:'Memoria', agentes:'Agentes', comparativa:'Mall ⇄ Playa', actividad:'Actividad', resumen:'Resumen del día', delegaciones:'Delegaciones'};
   function render(){
     panelsEl.innerHTML='';
     panels.forEach(p=>{
@@ -467,6 +477,12 @@
       return `<div class="cmp">${col('Playa',P,'var(--accent)')}${col('Mall',M,'var(--violet)')}</div>
         <div class="muted" style="text-align:center;margin-top:12px">${dif? lider+' lidera por '+dif+'%' : 'Empate técnico'}</div>`; },
     async actividad(p){ return renderActividad(); },
+    async delegaciones(p){ const d=await getJSON('/maximus/panel/delegaciones'); const a=d.delegaciones||[];
+      if(!a.length) return '<div class="muted">Sin delegaciones todavía. Dile a Maximus: "corre el advisor" o "pídele a alguien que…".</div>';
+      const cls=e=> (e==='lanzado'||e==='hecho')?'good': e==='error'?'crit':'warn';
+      return a.map(x=>`<div class="deleg"><span class="dstate ${cls(x.estado)}">${x.estado}</span>
+        <div class="dinfo"><div class="dt">${x.tarea||x.agente}</div><div class="dm">→ ${x.agente}${x.resultado?' · '+x.resultado:''}</div></div>
+        <span class="dwhen">${x.cuando||''}</span></div>`).join(''); },
     async resumen(p){ let d; try{ d=await ventas(); }catch(e){ return '<div class="err">Sin datos ('+(e.message||e)+').</div>'; }
       const pl=d.por_local||{}; const P=pl.playa||{monto:0}, M=pl.mall||{monto:0}; const tot=(P.monto||0)+(M.monto||0);
       const top=(d.top_productos||[]).slice(0,3); const bajo=(d.stock_bajo||[]);
