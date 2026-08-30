@@ -217,7 +217,7 @@
   let cfg = {};
   try{ cfg = JSON.parse(localStorage.getItem(LS)||'{}'); }catch(e){ cfg={}; }
   const el = id => document.getElementById(id);
-  const base = () => (cfg.srv || '').replace(/\/$/,'');
+  const base = () => { let s=(cfg.srv||'').trim(); if(!s) return ''; if(!/^https?:\/\//i.test(s)) s='https://'+s; return s.replace(/\/$/,''); };
   const hdr = () => ({'x-maximus-token': cfg.token||'', 'Content-Type':'application/json'});
   const money = n => { n = Number(n||0); return n>=1e6 ? (n/1e6).toFixed(n>=1e7?0:1)+'M' : n.toLocaleString('es-CL'); };
   const moneyFull = n => Number(n||0).toLocaleString('es-CL');
@@ -229,6 +229,7 @@
     if(!cfg.token) return;
     localStorage.setItem(LS, JSON.stringify(cfg));
     el('setup').style.display='none';
+    unlockAudio();
     boot();
   };
 
@@ -369,7 +370,7 @@
     el('reply').textContent=''; setState('piensa');
     try{
       const r = await fetch(base()+'/maximus/chat', {method:'POST', headers:hdr(),
-        body: JSON.stringify({mensaje:texto, sesion:'command', voz: !!viaVoz})});
+        body: JSON.stringify({mensaje:texto, sesion:'command', voz: true})});
       if(!r.ok) throw new Error('HTTP '+r.status);
       const d = await r.json();
       el('reply').textContent = d.respuesta||'';
@@ -377,15 +378,26 @@
     }catch(e){ el('reply').innerHTML='<span class="err">No pude contactar a Maximus ('+(e.message||e)+').</span>'; setState('espera'); }
     busy=false;
   }
-  let audioEl=null;
-  function playAudio(b64){ try{ if(audioEl){audioEl.pause();} audioEl=new Audio('data:audio/mp3;base64,'+b64);
-    audioEl.onended=()=>setState('espera'); audioEl.play().catch(()=>setState('espera')); }catch(e){ setState('espera'); } }
+  // Web Audio: sobrevive al bloqueo de autoplay de Safari (se desbloquea con el primer gesto).
+  let actx=null, curSrc=null;
+  function unlockAudio(){ try{ if(!actx) actx=new (window.AudioContext||window.webkitAudioContext)(); if(actx.state==='suspended') actx.resume(); }catch(e){} }
+  function stopAudio(){ try{ if(curSrc){ curSrc.onended=null; curSrc.stop(); curSrc=null; } }catch(e){} }
+  function b64buf(b64){ const bin=atob(b64), n=bin.length, a=new Uint8Array(n); for(let i=0;i<n;i++) a[i]=bin.charCodeAt(i); return a.buffer; }
+  async function playAudio(b64){ stopAudio();
+    try{ unlockAudio();
+      if(actx){ const buf=await actx.decodeAudioData(b64buf(b64)); const s=actx.createBufferSource();
+        s.buffer=buf; s.connect(actx.destination); s.onended=()=>{ curSrc=null; setState('espera'); }; curSrc=s; s.start(0); return; }
+    }catch(e){}
+    // Respaldo: elemento <audio> por si Web Audio no está disponible.
+    try{ const a=new Audio('data:audio/mp3;base64,'+b64); a.onended=()=>setState('espera'); a.play().catch(()=>setState('espera')); }
+    catch(e){ setState('espera'); }
+  }
 
   // ---------- reconocimiento de voz (navegador) ----------
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   let rec=null, listening=false;
   function initSR(){ if(!SR) return; rec=new SR(); rec.lang='es-CL'; rec.interimResults=true; rec.continuous=false;
-    rec.onstart=()=>{ listening=true; el('mic').classList.add('live'); setState('escucha'); if(audioEl)audioEl.pause(); };
+    rec.onstart=()=>{ listening=true; el('mic').classList.add('live'); setState('escucha'); stopAudio(); };
     rec.onend=()=>{ listening=false; el('mic').classList.remove('live'); };
     rec.onresult=(e)=>{ let txt=''; for(let i=e.resultIndex;i<e.results.length;i++){ txt+=e.results[i][0].transcript; }
       el('transcript').innerHTML='<span class="you">Tú:</span> '+txt;
@@ -394,9 +406,9 @@
   }
   function toggleMic(){ if(!rec){ if(!SR){ alert('Este navegador no soporta reconocimiento de voz. Usa Chrome.'); return; } initSR(); }
     if(listening){ rec.stop(); } else { try{ rec.start(); }catch(e){} } }
-  el('mic').onclick=toggleMic;
+  el('mic').onclick=()=>{ unlockAudio(); toggleMic(); };
   document.addEventListener('keydown',(e)=>{ if(e.code==='Space' && document.activeElement.id!=='textin' && document.activeElement.id!=='tok' && document.activeElement.id!=='srv'){ e.preventDefault(); toggleMic(); } });
-  el('textin').addEventListener('keydown',(e)=>{ if(e.key==='Enter'){ const t=el('textin').value.trim(); el('textin').value=''; ask(t,false); } });
+  el('textin').addEventListener('keydown',(e)=>{ if(e.key==='Enter'){ unlockAudio(); const t=el('textin').value.trim(); el('textin').value=''; ask(t,false); } });
   el('homebtn').onclick=()=>{ closePanel('all'); };
 
   // ---------- arranque ----------
