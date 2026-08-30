@@ -93,12 +93,12 @@ def _dentro_de_horario(cfg: dict) -> bool:
     return inicio <= ahora <= fin
 
 
-def _autorizado(telefono: str, cfg: dict) -> bool:
+def _buscar_persona(telefono: str, cfg: dict) -> dict | None:
     tel = normalizar_telefono(telefono)
     for persona in cfg.get("autorizados", []):
         if normalizar_telefono(persona.get("telefono", "")) == tel and persona.get("activo"):
-            return True
-    return False
+            return persona
+    return None
 
 
 async def _registrar(telefono: str, resultado: str, detalle: str = "") -> None:
@@ -192,12 +192,13 @@ async def procesar_mensaje_porton(telefono: str, texto: str) -> str | None:
     if not cfg or not es_palabra_clave(texto, cfg):
         return None
 
-    if not _autorizado(telefono, cfg):
+    persona = _buscar_persona(telefono, cfg)
+    if persona is None:
         await _registrar(telefono, "denegado_numero")
         logger.warning(f"[PORTON] Intento denegado (número no autorizado): {telefono}")
         return "No tienes autorización para abrir el portón."
 
-    if not _dentro_de_horario(cfg):
+    if not persona.get("horario_libre") and not _dentro_de_horario(cfg):
         await _registrar(telefono, "denegado_horario",
                           f"ventana {cfg.get('horario_inicio')}-{cfg.get('horario_fin')}")
         logger.warning(f"[PORTON] Intento fuera de horario: {telefono}")
