@@ -597,41 +597,31 @@
   // aun después de un await, y el AnalyserNode alimenta la animación "hablando".
   // Se "desbloquea" con un clip de silencio en el primer gesto (toque del micrófono).
   const SILENCIO='data:audio/wav;base64,UklGRrQBAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YZABAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIA=';
-  let actx=null, analyser=null, ampRAF=null, ampVal=0, ttsEl=null, ttsNode=null, audioListo=false;
-  function ensureAudio(){
-    try{ if(!actx) actx=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){}
-    if(!ttsEl){ ttsEl=new Audio(); ttsEl.setAttribute('playsinline',''); }
-    try{ if(actx && ttsEl && !ttsNode){ ttsNode=actx.createMediaElementSource(ttsEl);
-      analyser=actx.createAnalyser(); analyser.fftSize=256; analyser.smoothingTimeConstant=0.7;
-      ttsNode.connect(analyser); analyser.connect(actx.destination); } }catch(e){}
-  }
+  let ttsEl=null, audioListo=false, speakRAF=null, speakT0=0;
+  function ensureAudio(){ if(!ttsEl){ ttsEl=new Audio(); ttsEl.setAttribute('playsinline',''); ttsEl.preload='auto'; } }
   function unlockAudio(){ ensureAudio();
-    try{ if(actx && actx.state==='suspended') actx.resume(); }catch(e){}
-    if(!audioListo && ttsEl){ try{ ttsEl.src=SILENCIO; const p=ttsEl.play();
-      if(p && p.then){ p.then(()=>{ audioListo=true; try{ttsEl.pause();}catch(e){} }).catch(()=>{}); } else { audioListo=true; } }catch(e){} }
-  }
-  function startSpeakAnim(){ const wrap=el('avatarwrap'); if(!wrap||!analyser) return;
-    const data=new Uint8Array(analyser.frequencyBinCount);
-    const loop=()=>{ analyser.getByteFrequencyData(data);
-      let sum=0; for(let i=0;i<data.length;i++) sum+=data[i];
-      const raw=Math.min(1,(sum/data.length)/95);
-      ampVal = ampVal*0.55 + raw*0.45;
-      wrap.style.setProperty('--amp', ampVal.toFixed(3));
-      ampRAF=requestAnimationFrame(loop); };
-    loop(); }
-  function stopSpeakAnim(){ if(ampRAF){ cancelAnimationFrame(ampRAF); ampRAF=null; } ampVal=0; const wrap=el('avatarwrap'); if(wrap) wrap.style.setProperty('--amp','0'); }
+    if(!audioListo){ try{ ttsEl.src=SILENCIO; const p=ttsEl.play();
+      if(p && p.then){ p.then(()=>{ audioListo=true; try{ ttsEl.pause(); ttsEl.currentTime=0; }catch(e){} }).catch(()=>{}); }
+      else { audioListo=true; } }catch(e){} } }
+  // Animación "hablando" sintética — no depende de Web Audio (que Safari desktop bloquea).
+  function startSpeakAnim(){ const wrap=el('avatarwrap'); if(!wrap) return; speakT0=performance.now();
+    const loop=(t)=>{ const dt=(t-speakT0)/1000;
+      let a=0.34 + 0.34*Math.abs(Math.sin(dt*7.3)) + 0.18*Math.abs(Math.sin(dt*13.1+1.2));
+      a=Math.min(1, a*(0.72+0.28*Math.abs(Math.sin(dt*2.1))));
+      wrap.style.setProperty('--amp', a.toFixed(3));
+      speakRAF=requestAnimationFrame(loop); };
+    speakRAF=requestAnimationFrame(loop); }
+  function stopSpeakAnim(){ if(speakRAF){ cancelAnimationFrame(speakRAF); speakRAF=null; } const wrap=el('avatarwrap'); if(wrap) wrap.style.setProperty('--amp','0'); }
   function stopAudio(){ try{ if(ttsEl) ttsEl.pause(); }catch(e){} stopSpeakAnim(); }
-  async function playAudio(b64){
-    ensureAudio();
-    try{ if(actx && actx.state==='suspended') await actx.resume(); }catch(e){}
-    stopSpeakAnim();
-    if(!ttsEl){ setState('espera'); return; }
-    try{ ttsEl.pause(); }catch(e){}
+  async function playAudio(b64){ ensureAudio(); stopSpeakAnim();
+    try{ ttsEl.pause(); ttsEl.currentTime=0; }catch(e){}
     ttsEl.src='data:audio/mpeg;base64,'+b64;
     ttsEl.onended=()=>{ stopSpeakAnim(); setState('espera'); };
+    ttsEl.onerror=()=>{ stopSpeakAnim(); setState('espera'); };
     try{ const p=ttsEl.play();
-      if(p && p.then){ p.then(()=>startSpeakAnim()).catch(()=>{ setState('espera'); }); } else { startSpeakAnim(); }
-    }catch(e){ setState('espera'); }
+      if(p && p.then){ p.then(()=>startSpeakAnim()).catch(()=>{ stopSpeakAnim(); setState('espera'); }); }
+      else { startSpeakAnim(); }
+    }catch(e){ stopSpeakAnim(); setState('espera'); }
   }
 
   // ---------- reconocimiento de voz (navegador) ----------
@@ -685,7 +675,9 @@
   el('homebtn').onclick=()=>{ closePanel('all'); };
 
   // ---------- arranque ----------
-  function boot(){ connectSSE(); refreshHome(); setInterval(refreshHome, 60000); if(SR) initSR(); }
+  function boot(){ connectSSE(); refreshHome(); setInterval(refreshHome, 60000);
+    // Desbloquear el audio con el primer toque en cualquier parte (Safari lo exige).
+    document.addEventListener('pointerdown', unlockAudio); }
   if(cfg.token){ boot(); }
 })();
 </script>
