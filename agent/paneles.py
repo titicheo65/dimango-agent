@@ -1,0 +1,211 @@
+# agent/paneles.py — Datos para los paneles del Maximus Command Center
+#
+# Por qué existe: el Command Center (pantalla dedicada) pinta paneles con datos
+# en vivo. Estas funciones consultan las MISMAS fuentes que ya usa Maximus
+# (DiMangoToGo, iCloud, Gmail), pero devuelven JSON limpio para la pantalla.
+# El secreto de DiMangoToGo y las claves de correo viven solo acá en el
+# servidor — el navegador nunca los ve, solo tiene el MAXIMUS_CHAT_TOKEN.
+
+import os
+import asyncio
+import logging
+
+logger = logging.getLogger("agentkit")
+
+
+# ── Ventas / Top productos / Stock (DiMangoToGo) ──────────────────────────
+async def ventas_panel() -> dict:
+    """Ventas de hoy por local + medios de pago + top productos + stock bajo mínimo."""
+    from agent.maximus import DIMANGOTOGO_URL, DIMANGOTOGO_SECRET
+    if not DIMANGOTOGO_SECRET:
+        return {"error": "DiMangoToGo no configurado en el servidor."}
+
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=20) as c:
+            r = await c.post(DIMANGOTOGO_URL, json={}, headers={"x-maximus-secret": DIMANGOTOGO_SECRET})
+    except httpx.RequestError as e:
+        return {"error": f"No pude conectar con DiMangoToGo: {e}"}
+    if r.status_code != 200:
+        return {"error": f"DiMangoToGo respondió {r.status_code}"}
+
+    d = r.json()
+    resumen = d.get("resumen", {})
+    por_local_raw = resumen.get("por_local", {})
+    por_local = {
+        "playa": por_local_raw.get("playa", {"monto": 0, "ventas": 0}),
+        "mall": por_local_raw.get("mall", {"monto": 0, "ventas": 0}),
+    }
+
+    top = [
+        {"nombre": p.get("nombre", "—"), "cantidad": p.get("cantidad", 0), "monto": p.get("monto", 0)}
+        for p in d.get("productos_vendidos", [])[:12]
+    ]
+
+    stock_bajo = []
+    for s in d.get("stock", []):
+        for local in ("playa", "mall"):
+            v = s.get(local)
+            if v and v.get("cantidad") is not None and v.get("minimo") is not None and v["cantidad"] < v["minimo"]:
+                stock_bajo.append({"nombre": s.get("nombre", "—"), "local": local,
+                                   "cantidad": v["cantidad"], "minimo": v["minimo"]})
+
+    return {
+        "por_local": por_local,
+        "medios_pago": resumen.get("por_medio_pago", {}),
+        "total": resumen.get("monto_total", 0),
+        "propinas": resumen.get("propinas_total", 0),
+        "top_productos": top,
+        "stock_bajo": stock_bajo,
+    }
+
+
+# ── Checklist de reposición (DiMangoToGo) ─────────────────────────────────
+async def checklist_panel(local: str = "playa") -> dict:
+    from agent.maximus import DIMANGOTOGO_CHECKLIST_URL, DIMANGOTOGO_SECRET
+    if not DIMANGOTOGO_SECRET:
+        return {"error": "DiMangoToGo no configurado en el servidor."}
+
+    import httpx
+    payload = {"local": local} if local else {}
+    try:
+        async with httpx.AsyncClient(timeout=25) as c:
+            r = await c.post(DIMANGOTOGO_CHECKLIST_URL, json=payload,
+                             headers={"x-maximus-secret": DIMANGOTOGO_SECRET})
+    except httpx.RequestError as e:
+        return {"error": f"No pude conectar con DiMangoToGo: {e}"}
+    if r.status_code != 200:
+        return {"error": f"DiMangoToGo respondió {r.status_code}"}
+
+    d = r.json()
+    insumos = []
+    for i in d.get("insumos_a_reponer", [])[:20]:
+        cant = i.get("a_reponer", 0)
+        try:
+            cant = int(cant) if float(cant) == int(float(cant)) else round(float(cant), 2)
+        except (ValueError, TypeError):
+            pass
+        insumos.append({"cantidad": cant, "unidad": i.get("unidad", ""), "insumo": i.get("insumo", "—"),
+                        "area": i.get("area", "")})
+    return {"local": local, "cobertura_pct": d.get("cobertura_recetas_pct"), "insumos_a_reponer": insumos}
+
+
+# ── Alertas de venta activas ──────────────────────────────────────────────
+async def alertas_panel() -> dict:
+    try:
+        from agent.alertas_venta import listar_alertas_activas
+        activas = await listar_alertas_activas()
+        alertas = [{"producto": a.producto, "umbral": a.umbral, "local": a.local or ""} for a in activas]
+    except Exception as e:
+        logger.warning(f"[PANELES] alertas: {e}")
+        alertas = []
+    return {"alertas": alertas}
+
+
+# ── Calendario (iCloud iCal) ──────────────────────────────────────────────
+async def calendario_panel() -> dict:
+    from agent.maximus import ICLOUD_CALENDAR_URLS
+    if not ICLOUD_CALENDAR_URLS:
+        return {"error": "Calendario no configurado en el servidor.", "eventos": []}
+
+    import httpx
+    import icalendar
+    import recurring_ical_events
+    from datetime import date, timedelta
+
+    hoy = date.today()
+    fin = hoy + timedelta(days=14)
+    eventos_raw = []
+    async with httpx.AsyncClient(timeout=20, follow_redirects=True) as c:
+        for cal_url in ICLOUD_CALENDAR_URLS:
+            url = cal_url.replace("webcal://", "https://", 1)
+            try:
+                r = await c.get(url)
+                if r.status_code != 200:
+                    continue
+                cal = icalendar.Calendar.from_ical(r.content)
+                eventos_raw.extend(recurring_ical_events.of(cal).between(hoy, fin + timedelta(days=1)))
+            except Exception as e:
+                logger.warning(f"[PANELES] calendario {url[:40]}: {e}")
+
+    def clave(ev):
+        dt = ev.get("DTSTART").dt
+        return dt.isoformat() if hasattr(dt, "isoformat") else str(dt)
+
+    try:
+        eventos_raw.sort(key=clave)
+    except Exception:
+        pass
+
+    _DIAS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
+    eventos = []
+    for ev in eventos_raw[:12]:
+        titulo = str(ev.get("SUMMARY", "(sin título)"))
+        dt = ev.get("DTSTART").dt
+        if hasattr(dt, "hour"):
+            cuando = f"{_DIAS[dt.weekday()]} {dt.strftime('%d-%m %H:%M')}"
+        else:
+            cuando = f"{_DIAS[dt.weekday()]} {dt.strftime('%d-%m')}"
+        eventos.append({"cuando": cuando, "titulo": titulo})
+    return {"eventos": eventos}
+
+
+# ── Correos recientes (Gmail IMAP, solo lectura) ──────────────────────────
+def _leer_correos_sync(max_por_cuenta: int = 6) -> list:
+    import imaplib
+    import email
+    from email.header import decode_header
+
+    def decodificar(valor):
+        if not valor:
+            return ""
+        out = ""
+        for txt, cod in decode_header(valor):
+            out += txt.decode(cod or "utf-8", errors="replace") if isinstance(txt, bytes) else txt
+        return out
+
+    cuentas = [
+        ("titicheo", os.getenv("CORREO_TITICHEO_USER", ""), os.getenv("CORREO_TITICHEO_APP_PASSWORD", "")),
+        ("presupuesto", os.getenv("CORREO_PRESUPUESTO_USER", ""), os.getenv("CORREO_PRESUPUESTO_APP_PASSWORD", "")),
+    ]
+    correos = []
+    for etiqueta, user, pwd in cuentas:
+        if not user or not pwd:
+            continue
+        conexion = None
+        try:
+            conexion = imaplib.IMAP4_SSL("imap.gmail.com")
+            conexion.login(user, pwd)
+            conexion.select("INBOX", readonly=True)
+            estado, datos = conexion.uid("search", None, "ALL")
+            if estado != "OK" or not datos or not datos[0]:
+                continue
+            uids = datos[0].split()[-max_por_cuenta:]
+            for uid in reversed(uids):
+                est, msg_data = conexion.uid("fetch", uid, "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE)])")
+                if est != "OK" or not msg_data or not msg_data[0]:
+                    continue
+                msg = email.message_from_bytes(msg_data[0][1])
+                de = decodificar(msg.get("From", ""))
+                # "Nombre <correo>" → solo el nombre si viene
+                if "<" in de:
+                    de = de.split("<")[0].strip().strip('"') or de
+                correos.append({
+                    "de": de[:40] or "(sin remitente)",
+                    "asunto": decodificar(msg.get("Subject", "(sin asunto)"))[:90],
+                    "cuenta": etiqueta,
+                })
+        except Exception as e:
+            logger.warning(f"[PANELES] correo {etiqueta}: {e}")
+        finally:
+            if conexion is not None:
+                try:
+                    conexion.logout()
+                except Exception:
+                    pass
+    return correos[:10]
+
+
+async def correo_panel() -> dict:
+    correos = await asyncio.to_thread(_leer_correos_sync)
+    return {"correos": correos}

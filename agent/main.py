@@ -513,6 +513,66 @@ async def maximus_display():
         raise HTTPException(status_code=404, detail="maximus_display.html no encontrado")
 
 
+@app.get("/maximus/command")
+async def maximus_command():
+    """Command Center — pantalla dedicada, control por voz. Se conecta a /maximus/eventos
+    para el estado y los paneles, y a /maximus/panel/* para los datos."""
+    ruta = os.path.join(os.path.dirname(__file__), "static", "maximus_command.html")
+    try:
+        with open(ruta, "r", encoding="utf-8") as f:
+            return HTMLResponse(f.read())
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="maximus_command.html no encontrado")
+
+
+def _maximus_token_ok(request: Request) -> bool:
+    """El mismo MAXIMUS_CHAT_TOKEN por header — igual que /maximus/chat."""
+    tok = os.getenv("MAXIMUS_CHAT_TOKEN", "")
+    return bool(tok) and request.headers.get("x-maximus-token", "") == tok
+
+
+@app.get("/maximus/panel/ventas")
+async def maximus_panel_ventas(request: Request):
+    """Ventas por local + medios de pago + top productos + stock bajo. Alimenta 3 paneles."""
+    if not _maximus_token_ok(request):
+        raise HTTPException(status_code=401, detail="No autorizado")
+    from agent import paneles
+    return JSONResponse(await paneles.ventas_panel(), headers={"Cache-Control": "no-store"})
+
+
+@app.get("/maximus/panel/checklist")
+async def maximus_panel_checklist(request: Request):
+    if not _maximus_token_ok(request):
+        raise HTTPException(status_code=401, detail="No autorizado")
+    from agent import paneles
+    local = request.query_params.get("local", "playa")
+    return JSONResponse(await paneles.checklist_panel(local), headers={"Cache-Control": "no-store"})
+
+
+@app.get("/maximus/panel/alertas")
+async def maximus_panel_alertas(request: Request):
+    if not _maximus_token_ok(request):
+        raise HTTPException(status_code=401, detail="No autorizado")
+    from agent import paneles
+    return JSONResponse(await paneles.alertas_panel(), headers={"Cache-Control": "no-store"})
+
+
+@app.get("/maximus/panel/calendario")
+async def maximus_panel_calendario(request: Request):
+    if not _maximus_token_ok(request):
+        raise HTTPException(status_code=401, detail="No autorizado")
+    from agent import paneles
+    return JSONResponse(await paneles.calendario_panel(), headers={"Cache-Control": "no-store"})
+
+
+@app.get("/maximus/panel/correo")
+async def maximus_panel_correo(request: Request):
+    if not _maximus_token_ok(request):
+        raise HTTPException(status_code=401, detail="No autorizado")
+    from agent import paneles
+    return JSONResponse(await paneles.correo_panel(), headers={"Cache-Control": "no-store"})
+
+
 @app.get("/maximus/foto")
 async def maximus_foto():
     """La foto de Maximus (el perro) para el centro del Display."""

@@ -429,6 +429,45 @@ HERRAMIENTAS = [
             },
         },
     },
+    {
+        "name": "controlar_pantalla",
+        "description": (
+            "Controla el Command Center: la pantalla dedicada frente a Ricardo. Úsala SIEMPRE "
+            "que Ricardo pida VER, ABRIR, MOSTRAR, CERRAR, AMPLIAR/MAXIMIZAR o VOLVER AL INICIO "
+            "de algo visual — ventas, productos más vendidos, checklist, alertas, correos o "
+            "calendario. Abre el panel Y ADEMÁS respondes por voz con normalidad.\n"
+            "Ejemplos: 'muéstrame las ventas' → abrir ventas · 'abre el checklist de Playa' → "
+            "abrir checklist local=playa · 'cierra las cámaras' → cerrar · 'amplía las ventas' → "
+            "maximizar ventas · 'vuelve al inicio' → inicio.\n"
+            "No reemplaza a las herramientas de datos: si además tienes que DECIR el número, "
+            "consulta ventas_dimango/checklist_dimango en la misma vuelta."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "accion": {
+                    "type": "string",
+                    "enum": ["abrir", "cerrar", "maximizar", "restaurar", "inicio"],
+                    "description": "Qué hacer con la pantalla.",
+                },
+                "panel": {
+                    "type": "string",
+                    "enum": ["ventas", "top_productos", "checklist", "alertas", "correo", "calendario", "todos"],
+                    "description": (
+                        "Qué panel. 'ventas' del día por local, 'top_productos' los más vendidos, "
+                        "'checklist' insumos a reponer, 'alertas', 'correo', 'calendario'. "
+                        "Para accion 'cerrar' usa 'todos' para cerrar todo."
+                    ),
+                },
+                "local": {
+                    "type": "string",
+                    "enum": ["playa", "mall"],
+                    "description": "Solo si Ricardo especifica un local (útil sobre todo para checklist).",
+                },
+            },
+            "required": ["accion"],
+        },
+    },
 ]
 
 # Herramienta de servidor de Anthropic — Claude busca y trae los
@@ -845,6 +884,26 @@ async def ejecutar_herramienta(nombre: str, args: dict) -> str:
             if errores:
                 partes.append(f"\n(aviso: {len(errores)} de {len(ICLOUD_CALENDAR_URLS)} calendarios fallaron al consultarse — puede faltar algo)")
             return "\n".join(partes)
+
+        if nombre == "controlar_pantalla":
+            # No consulta datos: solo le dice a la pantalla qué panel abrir/cerrar/mover.
+            # El panel, ya en el navegador, pide sus propios datos a /maximus/panel/*.
+            from agent import eventos
+            accion = (args.get("accion") or "abrir").lower()
+            panel = (args.get("panel") or "").lower()
+            local = (args.get("local") or "").lower()
+            payload = {"accion": accion, "panel": panel}
+            if local:
+                payload["args"] = {"local": local}
+            await eventos.publicar("panel", **payload)
+            if accion == "inicio":
+                return "Listo, dejé la pantalla en inicio."
+            if accion == "cerrar":
+                return f"Cerré {'todo' if panel in ('todos', '') else panel} en la pantalla."
+            if accion in ("maximizar", "restaurar"):
+                return f"{'Maximicé' if accion == 'maximizar' else 'Restauré'} el panel de {panel}."
+            return f"Abrí el panel de {panel} en la pantalla" + (f" ({local})." if local else ".")
+
     except Exception as e:
         logger.error(f"[MAXIMUS] Herramienta {nombre} falló: {e}")
         return f"La consulta falló: {e}"
