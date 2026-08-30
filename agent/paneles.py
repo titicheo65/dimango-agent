@@ -209,3 +209,48 @@ def _leer_correos_sync(max_por_cuenta: int = 6) -> list:
 async def correo_panel() -> dict:
     correos = await asyncio.to_thread(_leer_correos_sync)
     return {"correos": correos}
+
+
+# ── Grafo de memoria (memoria atómica de Maximus) ─────────────────────────
+def _resumen_cuerpo(cuerpo: str) -> str:
+    """Primera línea con contenido del cuerpo, para el tooltip del nodo."""
+    for linea in (cuerpo or "").splitlines():
+        t = linea.strip().lstrip("#").strip()
+        if len(t) > 3:
+            return t[:160]
+    return ""
+
+
+async def grafo_panel() -> dict:
+    """Nodos + aristas de la memoria atómica de Maximus, para el grafo visual.
+    Devuelve una versión LIGERA (sin el cuerpo completo) — solo lo que la
+    pantalla necesita para dibujar y mostrar un tooltip."""
+    import json
+    from agent.maximus import MEMORY_DIR
+
+    ruta = MEMORY_DIR / "memoria" / "indice.json"
+    try:
+        data = await asyncio.to_thread(lambda: json.loads(ruta.read_text(encoding="utf-8")))
+    except Exception as e:
+        logger.warning(f"[PANELES] grafo: {e}")
+        return {"error": "No pude leer la memoria de Maximus.", "nodos": [], "aristas": []}
+
+    nodos = [
+        {
+            "id": n.get("id"),
+            "titulo": n.get("titulo", ""),
+            "tipo": n.get("tipo", "otro"),
+            "color": n.get("color"),
+            "grado": n.get("grado", 1),
+            "tags": n.get("tags", [])[:5],
+            "resumen": _resumen_cuerpo(n.get("cuerpo", "")),
+        }
+        for n in data.get("nodos", [])
+        if n.get("id")
+    ]
+    aristas = [
+        {"de": a.get("de"), "a": a.get("a"), "rel": a.get("rel", "")}
+        for a in data.get("aristas", [])
+        if a.get("de") and a.get("a")
+    ]
+    return {"nodos": nodos, "aristas": aristas}

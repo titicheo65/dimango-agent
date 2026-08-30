@@ -573,6 +573,15 @@ async def maximus_panel_correo(request: Request):
     return JSONResponse(await paneles.correo_panel(), headers={"Cache-Control": "no-store"})
 
 
+@app.get("/maximus/panel/grafo")
+async def maximus_panel_grafo(request: Request):
+    """Grafo de memoria de Maximus (nodos + aristas) para el panel visual."""
+    if not _maximus_token_ok(request):
+        raise HTTPException(status_code=401, detail="No autorizado")
+    from agent import paneles
+    return JSONResponse(await paneles.grafo_panel(), headers={"Cache-Control": "no-store"})
+
+
 @app.get("/maximus/foto")
 async def maximus_foto():
     """La foto de Maximus (el perro) para el centro del Display."""
@@ -581,6 +590,17 @@ async def maximus_foto():
     if not os.path.exists(ruta):
         raise HTTPException(status_code=404, detail="Foto no encontrada")
     return FileResponse(ruta, media_type="image/jpeg")
+
+
+@app.get("/maximus/avatar")
+async def maximus_avatar():
+    """Avatar holográfico de Maximus para el Command Center (fondo negro → se
+    vuelve transparente con blend en la pantalla)."""
+    from fastapi.responses import FileResponse
+    ruta = os.path.join(os.path.dirname(__file__), "static", "img", "maximus-avatar.png")
+    if not os.path.exists(ruta):
+        raise HTTPException(status_code=404, detail="Avatar no encontrado")
+    return FileResponse(ruta, media_type="image/png")
 
 
 @app.post("/telegram/webhook")

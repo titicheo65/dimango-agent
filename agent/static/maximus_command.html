@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<script src="https://d3js.org/d3.v7.min.js"></script>
 <style>
   :root{
     --bg:#080b11; --bg-2:#0b1017; --panel:#0f1621; --panel-2:#131c29;
@@ -66,6 +67,8 @@
   .home{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px;
     text-align:center;transition:opacity .4s;padding:20px}
   .home.hidden{opacity:0;pointer-events:none}
+  .bigface{width:min(46vmin,300px);height:auto;border-radius:50%;mix-blend-mode:screen;
+    animation:float 6s ease-in-out infinite;filter:drop-shadow(0 0 42px rgba(56,205,224,.40))}
   .bigorb{width:150px;height:150px;border-radius:50%;position:relative;
     background:radial-gradient(circle at 38% 32%,#8ff3ff,var(--accent) 42%,var(--accent-dim) 78%,#0b2b31 100%);
     box-shadow:0 0 0 8px rgba(56,205,224,.06),0 0 70px rgba(56,205,224,.35);animation:float 5s ease-in-out infinite}
@@ -173,7 +176,9 @@
 
   <div class="stage">
     <div class="home" id="home">
-      <div class="bigorb"></div>
+      <img class="bigface" id="avatar" src="/maximus/avatar" alt="Maximus"
+           onerror="this.style.display='none'; var o=document.getElementById('orbFb'); if(o) o.style.display='block';">
+      <div class="bigorb" id="orbFb" style="display:none"></div>
       <h1>MAXIMUS</h1>
       <p class="greet" id="greet">Hola Ricardo. Estoy listo — pregúntame lo que quieras.</p>
       <div class="kpis">
@@ -271,7 +276,7 @@
   }
   function maxiPanel(tipo, on){ const p=panels.find(x=>x.tipo===(tipo||'').toLowerCase()); if(p){ panels.forEach(x=>x.maxi=false); p.maxi = on!==false; } render(); syncStage(); }
 
-  const TITLES = {ventas:'Ventas hoy', top_productos:'Top productos', checklist:'Checklist', alertas:'Alertas', correo:'Correos', calendario:'Calendario'};
+  const TITLES = {ventas:'Ventas hoy', top_productos:'Top productos', checklist:'Checklist', alertas:'Alertas', correo:'Correos', calendario:'Calendario', memoria:'Memoria'};
   function render(){
     panelsEl.innerHTML='';
     panels.forEach(p=>{
@@ -297,6 +302,60 @@
   let ventasCache=null, ventasT=0;
   async function ventas(){ if(ventasCache && Date.now()-ventasT<20000) return ventasCache; ventasCache=await getJSON('/maximus/panel/ventas'); ventasT=Date.now(); return ventasCache; }
 
+  // ---- grafo de memoria (D3) ----
+  let lastNotas = [];
+  const TIPO_COLOR = {decision:'#38cde0', hallazgo:'#41d19a', sistema:'#8b7be8', pendiente:'#f4b545',
+    metrica:'#22d3ee', persona:'#ff9f6b', leccion:'#c084fc', regla:'#f472b6', tesis:'#facc15',
+    escalamiento:'#ff6f6b', otro:'#5d6f86'};
+  function highlightMemoria(){ const p=panels.find(x=>x.tipo==='memoria'); if(p && p._graph){ try{ p._graph.highlight(lastNotas); }catch(e){} } }
+
+  function buildGraph(body, data){
+    body.innerHTML=''; body.style.padding='0';
+    const W=960, H=640;
+    const svg=d3.select(body).append('svg').attr('viewBox',`0 0 ${W} ${H}`).attr('width','100%').attr('height','100%').style('display','block').style('cursor','grab');
+    const g=svg.append('g');
+    svg.call(d3.zoom().scaleExtent([0.3,4]).on('zoom',ev=>g.attr('transform',ev.transform)));
+    const nodos=data.nodos.map(d=>Object.assign({},d));
+    const idset=new Set(nodos.map(n=>n.id));
+    const links=data.aristas.filter(a=>idset.has(a.de)&&idset.has(a.a)).map(a=>({source:a.de,target:a.a,rel:a.rel}));
+    const color=n=> n.color || TIPO_COLOR[n.tipo] || '#5d6f86';
+    const rad=d=> 4 + Math.min((d.grado||1),9);
+    const sim=d3.forceSimulation(nodos)
+      .force('link',d3.forceLink(links).id(d=>d.id).distance(62).strength(.22))
+      .force('charge',d3.forceManyBody().strength(-95))
+      .force('center',d3.forceCenter(W/2,H/2))
+      .force('collide',d3.forceCollide().radius(d=>rad(d)+3));
+    const link=g.append('g').attr('stroke','#1d2a3b').attr('stroke-opacity',.5).selectAll('line').data(links).join('line').attr('stroke-width',1);
+    const node=g.append('g').selectAll('circle').data(nodos).join('circle')
+      .attr('r',rad).attr('fill',color).attr('stroke','#0b1017').attr('stroke-width',1.2).style('cursor','pointer')
+      .call(d3.drag()
+        .on('start',(e,d)=>{ if(!e.active)sim.alphaTarget(.3).restart(); d.fx=d.x; d.fy=d.y; })
+        .on('drag',(e,d)=>{ d.fx=e.x; d.fy=e.y; })
+        .on('end',(e,d)=>{ if(!e.active)sim.alphaTarget(0); d.fx=null; d.fy=null; }));
+    node.append('title').text(d=>`${d.id} · ${d.titulo}${d.resumen?'\n'+d.resumen:''}`);
+    const label=g.append('g').selectAll('text').data(nodos).join('text').text(d=>d.titulo)
+      .attr('font-size',9).attr('fill','#e8eff7').attr('font-family','IBM Plex Mono,monospace')
+      .attr('dx',9).attr('dy',3).style('display','none').style('pointer-events','none')
+      .attr('stroke','#080b11').attr('stroke-width',3).attr('paint-order','stroke');
+    sim.on('tick',()=>{
+      link.attr('x1',d=>d.source.x).attr('y1',d=>d.source.y).attr('x2',d=>d.target.x).attr('y2',d=>d.target.y);
+      node.attr('cx',d=>d.x).attr('cy',d=>d.y);
+      label.attr('x',d=>d.x).attr('y',d=>d.y);
+    });
+    function highlight(ids){
+      const set=new Set(ids||[]); const on=set.size>0;
+      node.attr('opacity',d=>on?(set.has(d.id)?1:.22):1)
+          .attr('r',d=>rad(d)*(set.has(d.id)?1.9:1))
+          .attr('stroke',d=>set.has(d.id)?'#38cde0':'#0b1017')
+          .attr('stroke-width',d=>set.has(d.id)?2.6:1.2);
+      link.attr('stroke',d=>(set.has(d.source.id)&&set.has(d.target.id))?'#38cde0':'#1d2a3b')
+          .attr('stroke-opacity',d=>on?((set.has(d.source.id)&&set.has(d.target.id))?.85:.1):.5);
+      label.style('display',d=>set.has(d.id)?'block':'none');
+      if(on){ sim.alphaTarget(.15).restart(); setTimeout(()=>sim.alphaTarget(0),900); }
+    }
+    return {highlight, sim};
+  }
+
   const RENDER = {
     async ventas(p){ const d=await ventas(); const pl=d.por_local||{}; const playa=pl.playa||{monto:0}, mall=pl.mall||{monto:0};
       const tot=(playa.monto||0)+(mall.monto||0); const mx=Math.max(playa.monto||0, mall.monto||0, 1);
@@ -321,8 +380,18 @@
       return m.slice(0,8).map(x=>`<div class="mail"><span class="from">${x.de||'—'}</span><span class="subj">${x.asunto||''}</span></div>`).join(''); },
     async calendario(p){ const d=await getJSON('/maximus/panel/calendario'); const ev=(d.eventos||[]); if(!ev.length) return '<div class="muted">Sin eventos próximos.</div>';
       return `<div class="cal">`+ev.slice(0,10).map(x=>`<div class="slot"><span class="time">${x.cuando||''}</span><span class="ev">${x.titulo||''}</span></div>`).join('')+`</div>`; },
+    async memoria(p, body){
+      if(typeof d3==='undefined') return '<div class="muted">Cargando la librería del grafo… recarga si tarda.</div>';
+      let data; try{ data=await getJSON('/maximus/panel/grafo'); }catch(e){ return '<div class="err">No pude cargar la memoria ('+(e.message||e)+').</div>'; }
+      if(data.error) return '<div class="err">'+data.error+'</div>';
+      if(!data.nodos || !data.nodos.length) return '<div class="muted">Sin memoria para mostrar.</div>';
+      const b=bodyOf(p); if(!b) return undefined;
+      p._graph = buildGraph(b, data);
+      if(lastNotas.length) setTimeout(()=>{ try{ p._graph.highlight(lastNotas); }catch(e){} }, 300);
+      return undefined; // el grafo se dibuja solo en el body
+    },
   };
-  async function loadPanel(p){ const body=bodyOf(p); if(!body) return; try{ const html=await RENDER[p.tipo](p); const b=bodyOf(p); if(b) b.innerHTML=html; }
+  async function loadPanel(p){ const body=bodyOf(p); if(!body) return; try{ const html=await RENDER[p.tipo](p, body); const b=bodyOf(p); if(b && html!=null) b.innerHTML=html; }
     catch(e){ const b=bodyOf(p); if(b) b.innerHTML='<div class="err">No pude cargar este panel ('+ (e.message||e) +').</div>'; } }
   function refreshAll(){ panels.forEach(loadPanel); }
   setInterval(()=>{ ventasCache=null; refreshAll(); refreshHome(); }, 60000);
@@ -373,6 +442,8 @@
         body: JSON.stringify({mensaje:texto, sesion:'command', voz: true})});
       if(!r.ok) throw new Error('HTTP '+r.status);
       const d = await r.json();
+      lastNotas = Array.isArray(d.notas) ? d.notas : [];
+      highlightMemoria();
       el('reply').textContent = d.respuesta||'';
       if(d.audio){ setState('habla'); playAudio(d.audio); } else { setState('espera'); }
     }catch(e){ el('reply').innerHTML='<span class="err">No pude contactar a Maximus ('+(e.message||e)+').</span>'; setState('espera'); }
