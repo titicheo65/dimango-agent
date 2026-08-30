@@ -67,8 +67,15 @@
   .home{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px;
     text-align:center;transition:opacity .4s;padding:20px}
   .home.hidden{opacity:0;pointer-events:none}
+  .avatarwrap{--amp:0;position:relative;display:flex;align-items:center;justify-content:center;
+    transform:scale(calc(1 + var(--amp)*0.05)) scaleY(calc(1 + var(--amp)*0.035));
+    transition:transform .07s linear;will-change:transform}
+  .voicering{position:absolute;width:min(46vmin,300px);height:min(46vmin,300px);border-radius:50%;
+    border:2px solid rgba(56,205,224,.55);opacity:calc(var(--amp)*.9);
+    transform:scale(calc(1.02 + var(--amp)*0.28));pointer-events:none;transition:transform .07s linear,opacity .1s}
   .bigface{width:min(46vmin,300px);height:auto;border-radius:50%;mix-blend-mode:screen;
-    animation:float 6s ease-in-out infinite;filter:drop-shadow(0 0 42px rgba(56,205,224,.40))}
+    animation:float 6s ease-in-out infinite;transition:filter .07s linear;
+    filter:drop-shadow(0 0 calc(30px + var(--amp)*80px) rgba(56,205,224, calc(.35 + var(--amp)*.55))) brightness(calc(1 + var(--amp)*.35))}
   .bigorb{width:150px;height:150px;border-radius:50%;position:relative;
     background:radial-gradient(circle at 38% 32%,#8ff3ff,var(--accent) 42%,var(--accent-dim) 78%,#0b2b31 100%);
     box-shadow:0 0 0 8px rgba(56,205,224,.06),0 0 70px rgba(56,205,224,.35);animation:float 5s ease-in-out infinite}
@@ -225,9 +232,12 @@
 
   <div class="stage">
     <div class="home" id="home">
-      <img class="bigface" id="avatar" src="/maximus/avatar" alt="Maximus"
-           onerror="this.style.display='none'; var o=document.getElementById('orbFb'); if(o) o.style.display='block';">
-      <div class="bigorb" id="orbFb" style="display:none"></div>
+      <div class="avatarwrap" id="avatarwrap">
+        <div class="voicering" id="voicering"></div>
+        <img class="bigface" id="avatar" src="/maximus/avatar" alt="Maximus"
+             onerror="this.style.display='none'; var o=document.getElementById('orbFb'); if(o) o.style.display='block';">
+        <div class="bigorb" id="orbFb" style="display:none"></div>
+      </div>
       <h1>MAXIMUS</h1>
       <p class="greet" id="greet">Hola Ricardo. Estoy listo — pregúntame lo que quieras.</p>
       <div class="kpis">
@@ -534,16 +544,29 @@
     busy=false;
   }
   // Web Audio: sobrevive al bloqueo de autoplay de Safari (se desbloquea con el primer gesto).
-  let actx=null, curSrc=null;
+  // Además engancha un AnalyserNode para animar el avatar con la voz real (efecto "hablando").
+  let actx=null, curSrc=null, analyser=null, ampRAF=null, ampVal=0;
   function unlockAudio(){ try{ if(!actx) actx=new (window.AudioContext||window.webkitAudioContext)(); if(actx.state==='suspended') actx.resume(); }catch(e){} }
-  function stopAudio(){ try{ if(curSrc){ curSrc.onended=null; curSrc.stop(); curSrc=null; } }catch(e){} }
+  function ensureAnalyser(){ if(actx && !analyser){ try{ analyser=actx.createAnalyser(); analyser.fftSize=256; analyser.smoothingTimeConstant=0.7; analyser.connect(actx.destination); }catch(e){} } }
+  function startSpeakAnim(){ const wrap=el('avatarwrap'); if(!wrap||!analyser) return;
+    const data=new Uint8Array(analyser.frequencyBinCount);
+    const loop=()=>{ analyser.getByteFrequencyData(data);
+      let sum=0; for(let i=0;i<data.length;i++) sum+=data[i];
+      const raw=Math.min(1,(sum/data.length)/95);
+      ampVal = ampVal*0.55 + raw*0.45;                 // suavizado para que no tiemble
+      wrap.style.setProperty('--amp', ampVal.toFixed(3));
+      ampRAF=requestAnimationFrame(loop); };
+    loop(); }
+  function stopSpeakAnim(){ if(ampRAF){ cancelAnimationFrame(ampRAF); ampRAF=null; } ampVal=0; const wrap=el('avatarwrap'); if(wrap) wrap.style.setProperty('--amp','0'); }
+  function stopAudio(){ try{ if(curSrc){ curSrc.onended=null; curSrc.stop(); curSrc=null; } }catch(e){} stopSpeakAnim(); }
   function b64buf(b64){ const bin=atob(b64), n=bin.length, a=new Uint8Array(n); for(let i=0;i<n;i++) a[i]=bin.charCodeAt(i); return a.buffer; }
   async function playAudio(b64){ stopAudio();
-    try{ unlockAudio();
-      if(actx){ const buf=await actx.decodeAudioData(b64buf(b64)); const s=actx.createBufferSource();
-        s.buffer=buf; s.connect(actx.destination); s.onended=()=>{ curSrc=null; setState('espera'); }; curSrc=s; s.start(0); return; }
+    try{ unlockAudio(); ensureAnalyser();
+      if(actx){ const buf=await actx.decodeAudioData(b64buf(b64)); const s=actx.createBufferSource(); s.buffer=buf;
+        if(analyser){ s.connect(analyser); } else { s.connect(actx.destination); }
+        s.onended=()=>{ curSrc=null; stopSpeakAnim(); setState('espera'); }; curSrc=s; s.start(0); startSpeakAnim(); return; }
     }catch(e){}
-    // Respaldo: elemento <audio> por si Web Audio no está disponible.
+    // Respaldo: elemento <audio> por si Web Audio no está disponible (sin animación reactiva).
     try{ const a=new Audio('data:audio/mp3;base64,'+b64); a.onended=()=>setState('espera'); a.play().catch(()=>setState('espera')); }
     catch(e){ setState('espera'); }
   }
