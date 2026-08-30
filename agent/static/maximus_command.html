@@ -660,8 +660,9 @@
   function stopRecording(){ try{ if(mediaRec && recording) mediaRec.stop(); }catch(e){} }
 
   function toggleMic(){ unlockAudio();
-    if(SR){ if(!rec) initSR(); if(listening){ rec.stop(); } else { try{ rec.start(); }catch(e){} } return; }
-    // Sin STT del navegador (iPhone/Safari): grabar y transcribir con Groq.
+    // Micrófono unificado: grabar + transcribir con Groq. Funciona igual en Safari (Mac
+    // e iPhone) y Chrome. No usamos el SpeechRecognition del navegador porque en Safari
+    // de escritorio existe pero falla en silencio.
     if(recording){ stopRecording(); } else { startRecording(); }
   }
   el('mic').onclick=()=>{ unlockAudio(); toggleMic(); };
