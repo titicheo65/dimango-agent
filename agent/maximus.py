@@ -180,6 +180,16 @@ HERRAMIENTAS = [
                     "enum": ["playa", "mall"],
                     "description": "Si no lo dicen, trae ambos locales.",
                 },
+                "producto": {
+                    "type": "string",
+                    "description": (
+                        "Nombre (o parte del nombre) de un producto específico. Úsalo "
+                        "cuando pregunten por un plato/bebida en particular que puede no "
+                        "estar entre los 15 más vendidos del día — sin esto, esos "
+                        "productos de bajo volumen no aparecen en la respuesta y NO "
+                        "significa que vendieron 0."
+                    ),
+                },
             },
         },
     },
@@ -663,11 +673,40 @@ async def ejecutar_herramienta(nombre: str, args: dict) -> str:
             if resumen.get("por_medio_pago"):
                 for mp, monto in resumen["por_medio_pago"].items():
                     partes.append(f"  {mp}: ${monto:,.0f}".replace(",", "."))
-            top = d.get("productos_vendidos", [])[:15]
+            todos_productos = d.get("productos_vendidos", [])
+
+            producto_buscado = (args.get("producto") or "").strip()
+            if producto_buscado:
+                import unicodedata as _ud
+                def _norm(s):
+                    s = _ud.normalize("NFKD", s or "").encode("ascii", "ignore").decode("ascii")
+                    return s.lower().strip()
+                clave = _norm(producto_buscado)
+                coincidencias = [p for p in todos_productos if clave in _norm(p["nombre"])]
+                if coincidencias:
+                    partes.append(f"\nBúsqueda \"{producto_buscado}\" — coincidencias exactas en la venta:")
+                    for p in coincidencias:
+                        partes.append(f"  {p['cantidad']}x {p['nombre']} — ${p['monto']:,.0f}".replace(",", "."))
+                else:
+                    partes.append(
+                        f"\nBúsqueda \"{producto_buscado}\": no aparece en productos_vendidos "
+                        f"para este rango — esto SÍ confirma 0 unidades, porque esta lista "
+                        f"(a diferencia del top 15 de abajo) es completa, sin truncar."
+                    )
+
+            top = todos_productos[:15]
             if top:
                 partes.append("\nProductos más vendidos:")
                 for p in top:
                     partes.append(f"  {p['cantidad']}x {p['nombre']} — ${p['monto']:,.0f}".replace(",", "."))
+                restantes = len(todos_productos) - len(top)
+                if restantes > 0:
+                    partes.append(
+                        f"  … y {restantes} producto{'s' if restantes != 1 else ''} más vendidos "
+                        "hoy, no listados arriba. Si preguntan por uno que no aparece en esta "
+                        "lista, NO asumas que vendió 0 — dilo explícitamente: no está en el top "
+                        "15 que se muestra, no que no se vendió."
+                    )
             stock = d.get("stock", [])
             if stock:
                 partes.append("\nStock con control activo:")
