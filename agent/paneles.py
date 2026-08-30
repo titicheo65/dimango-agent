@@ -282,41 +282,46 @@ def _estado_tareas_windows(nombres: list) -> dict:
 
 
 async def agentes_panel() -> dict:
-    """Roster de los 'agentes' de Maximus con su estado."""
+    """Equipo de agentes de Maximus: id estable, nombre (editable), rol, estado,
+    grupo y color, para mostrarlos como tarjetas de equipo."""
+    overrides = {}
+    try:
+        from agent.equipo import get_nombres
+        overrides = await get_nombres()
+    except Exception as e:
+        logger.info(f"[PANELES] nombres de equipo no disponibles: {e}")
+
+    COL = {"Núcleo": "#38cde0", "Canales": "#8b7be8", "Operaciones": "#41d19a"}
+
+    def A(id_, nombre, rol, estado, grupo):
+        return {"id": id_, "nombre": overrides.get(id_, nombre), "nombre_default": nombre,
+                "rol": rol, "estado": estado, "grupo": grupo, "color": COL.get(grupo, "#5d6f86")}
+
     agentes = [
-        {"nombre": "Cerebro", "rol": "Orquestador — Claude + herramientas", "estado": "activo", "grupo": "Núcleo"},
-        {"nombre": "Voz", "rol": "Escucha y habla (STT + TTS)", "estado": "activo", "grupo": "Núcleo"},
-        {"nombre": "Memoria", "rol": "Grafo de conocimiento", "estado": "activo", "grupo": "Núcleo"},
-        {"nombre": "Visión", "rol": "Lee pantallas e imágenes", "estado": "activo", "grupo": "Núcleo"},
-    ]
-
-    def canal(nombre, envkey, rol):
-        return {"nombre": nombre, "rol": rol, "estado": "activo" if os.getenv(envkey) else "apagado", "grupo": "Canales"}
-
-    agentes += [
-        {"nombre": "WhatsApp", "rol": "Clientes + Maximus", "estado": "activo", "grupo": "Canales"},
-        canal("Instagram", "IG_ACCESS_TOKEN", "DM Instagram"),
-        canal("Messenger", "MESSENGER_PAGE_TOKEN", "Mensajes Facebook"),
-        canal("Telegram", "TELEGRAM_BOT_TOKEN", "Canal remoto de Maximus"),
-    ]
-
-    agentes += [
-        {"nombre": "Alertas de venta", "rol": "Vigila productos y umbrales", "estado": "activo", "grupo": "Automatizaciones"},
-        {"nombre": "Colación", "rol": "Control de descansos del personal", "estado": "activo", "grupo": "Automatizaciones"},
-        {"nombre": "Checklist operativo", "rol": "Reenvíos y escalamiento", "estado": "activo", "grupo": "Automatizaciones"},
+        A("cerebro", "Cerebro", "Orquestador — Claude + herramientas", "activo", "Núcleo"),
+        A("voz", "Voz", "Escucha y habla (STT + TTS)", "activo", "Núcleo"),
+        A("memoria", "Memoria", "Grafo de conocimiento", "activo", "Núcleo"),
+        A("vision", "Visión", "Lee pantallas e imágenes", "activo", "Núcleo"),
+        A("whatsapp", "WhatsApp", "Clientes + Maximus", "activo", "Canales"),
+        A("instagram", "Instagram", "DM Instagram", "activo" if os.getenv("IG_ACCESS_TOKEN") else "apagado", "Canales"),
+        A("messenger", "Messenger", "Mensajes Facebook", "activo" if os.getenv("MESSENGER_PAGE_TOKEN") else "apagado", "Canales"),
+        A("telegram", "Telegram", "Canal remoto de Maximus", "activo" if os.getenv("TELEGRAM_BOT_TOKEN") else "apagado", "Canales"),
+        A("alertas_venta", "Alertas de venta", "Vigila productos y umbrales", "activo", "Operaciones"),
+        A("colacion", "Colación", "Control de descansos del personal", "activo", "Operaciones"),
+        A("checklist_op", "Checklist operativo", "Reenvíos y escalamiento", "activo", "Operaciones"),
     ]
 
     # Tareas programadas de Windows — estado real
     tareas = {
-        "Maximus-Advisor": "Advisor diario (3 recomendaciones)",
-        "Maximus-Correo": "Aviso de correo nuevo",
-        "Maximus-Vigilante": "Vigilante del sistema",
-        "Maximus-Sync-Memoria": "Sincroniza memoria",
-        "DimangoChecklistReposicion": "Checklist de reposición",
+        "advisor": ("Maximus-Advisor", "Advisor", "3 recomendaciones al día"),
+        "correo": ("Maximus-Correo", "Correo", "Aviso de correo nuevo"),
+        "vigilante": ("Maximus-Vigilante", "Vigilante", "Chequea el sistema"),
+        "sync_memoria": ("Maximus-Sync-Memoria", "Sync Memoria", "Sincroniza la memoria"),
+        "checklist_repo": ("DimangoChecklistReposicion", "Reposición", "Checklist de insumos"),
     }
-    estados = await asyncio.to_thread(_estado_tareas_windows, list(tareas.keys()))
-    for tn, rol in tareas.items():
-        agentes.append({"nombre": rol, "rol": "Tarea programada", "estado": estados.get(tn, "desconocido"), "grupo": "Automatizaciones"})
+    estados = await asyncio.to_thread(_estado_tareas_windows, [t[0] for t in tareas.values()])
+    for id_, (tn, nombre, rol) in tareas.items():
+        agentes.append(A(id_, nombre, rol, estados.get(tn, "desconocido"), "Operaciones"))
 
     activos = sum(1 for a in agentes if a["estado"] in ("activo", "corriendo"))
     return {"agentes": agentes, "activos": activos, "total": len(agentes)}

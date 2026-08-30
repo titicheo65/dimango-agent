@@ -138,6 +138,20 @@
   .muted{color:var(--faint);font-size:13px}
   .agrp{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin:12px 0 5px}
   .agrp:first-child{margin-top:0}
+  .teamhead{font-family:var(--mono);font-size:11px;color:var(--faint);letter-spacing:.06em;margin-bottom:8px}
+  .team{display:grid;grid-template-columns:repeat(auto-fill,minmax(215px,1fr));gap:10px;margin-bottom:4px}
+  .tcard{display:flex;align-items:center;gap:11px;background:var(--panel-2);border:1px solid var(--line);border-radius:11px;padding:11px 12px}
+  .tav{width:38px;height:38px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font-family:var(--display);font-weight:700;font-size:14px;border:1px solid}
+  .tinfo{flex:1;min-width:0}
+  .tname{color:var(--ink);font-weight:600;font-size:14px;cursor:text;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-bottom:1px dashed transparent}
+  .tname:hover{border-bottom-color:var(--accent-dim)}
+  .trole{color:var(--faint);font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:1px}
+  .tnameedit{width:100%;background:var(--bg-2);border:1px solid var(--accent-dim);color:var(--ink);border-radius:6px;padding:2px 6px;font-size:14px;font-family:var(--sans)}
+  .tnameedit:focus{outline:none}
+  .tdot{width:9px;height:9px;border-radius:50%;background:var(--faint);flex:none}
+  .tdot.good{background:var(--good);box-shadow:0 0 8px var(--good)}
+  .tdot.warn{background:var(--warn);box-shadow:0 0 8px var(--warn)}
+  .tdot.crit{background:var(--crit)}
   .agente{display:flex;align-items:center;gap:9px;padding:6px 0;border-bottom:1px solid var(--line-soft);font-size:13px}
   .agente:last-child{border-bottom:0}
   .agente .adot{width:8px;height:8px;border-radius:50%;background:var(--faint);flex:none}
@@ -321,6 +335,19 @@
 
   // ---------- home / panels ----------
   const home = el('home'), panelsEl = el('panels');
+
+  // Renombrar agentes tocando el nombre (delegado — sobrevive re-render)
+  function startRename(nmEl){ const card=nmEl.closest('.tcard'); if(!card || nmEl.querySelector('input')) return;
+    const id=card.dataset.id, actual=nmEl.textContent;
+    const inp=document.createElement('input'); inp.className='tnameedit'; inp.value=actual; nmEl.textContent=''; nmEl.appendChild(inp); inp.focus(); inp.select();
+    let done=false;
+    const save=async()=>{ if(done) return; done=true; const nv=inp.value.trim(); nmEl.textContent = nv||actual;
+      if(nv && nv!==actual){ try{ await fetch(base()+'/maximus/agente/nombre',{method:'POST',headers:hdr(),body:JSON.stringify({clave:id,nombre:nv})});
+        const av=card.querySelector('.tav'); if(av){ const w=nv.split(/\s+/); av.textContent=(((w[0]||'')[0]||'')+((w[1]||'')[0]||'')).toUpperCase(); } }catch(e){} } };
+    inp.addEventListener('keydown',ev=>{ if(ev.key==='Enter'){ ev.preventDefault(); inp.blur(); } else if(ev.key==='Escape'){ done=true; nmEl.textContent=actual; } });
+    inp.addEventListener('blur', save);
+  }
+  panelsEl.addEventListener('click',(e)=>{ const nm=e.target.closest && e.target.closest('.tname'); if(nm) startRename(nm); });
   let panels = []; // {id,tipo,args,maxi}
   function showHome(){ home.classList.remove('hidden'); }
   function hideHome(){ home.classList.add('hidden'); }
@@ -460,10 +487,16 @@
       return `<div class="cal">`+ev.slice(0,10).map(x=>`<div class="slot"><span class="time">${x.cuando||''}</span><span class="ev">${x.titulo||''}</span></div>`).join('')+`</div>`; },
     async agentes(p){ const d=await getJSON('/maximus/panel/agentes'); const a=d.agentes||[]; if(!a.length) return '<div class="muted">Sin agentes.</div>';
       const dot=e=> e==='activo'?'good': e==='corriendo'?'warn': e==='apagado'?'crit':'';
+      const ini=n=>{ const w=(n||'?').trim().split(/\s+/); return (((w[0]||'')[0]||'')+((w[1]||'')[0]||'')).toUpperCase(); };
+      const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
       const grupos={}; a.forEach(x=>{ const g=x.grupo||'Otros'; (grupos[g]=grupos[g]||[]).push(x); });
-      let out='';
-      Object.keys(grupos).forEach(g=>{ out+=`<div class="agrp">${g}</div>`;
-        grupos[g].forEach(x=>{ out+=`<div class="agente"><span class="adot ${dot(x.estado)}"></span><span class="an">${x.nombre}</span><span class="ar">${x.rol}</span><span class="ae">${x.estado}</span></div>`; }); });
+      let out=`<div class="teamhead">${a.length} agentes · ${d.activos} activos · toca un nombre para editarlo</div>`;
+      Object.keys(grupos).forEach(g=>{ out+=`<div class="agrp">${g}</div><div class="team">`;
+        grupos[g].forEach(x=>{ out+=`<div class="tcard" data-id="${x.id}">
+          <div class="tav" style="background:${x.color}22;color:${x.color};border-color:${x.color}66">${ini(x.nombre)}</div>
+          <div class="tinfo"><div class="tname" title="Toca para renombrar">${esc(x.nombre)}</div><div class="trole">${esc(x.rol)}</div></div>
+          <span class="tdot ${dot(x.estado)}" title="${x.estado}"></span></div>`; });
+        out+='</div>'; });
       return out; },
     async comparativa(p){ const d=await ventas(); const pl=d.por_local||{}; const P=pl.playa||{monto:0,ventas:0}, M=pl.mall||{monto:0,ventas:0};
       const tk=x=> x.ventas? Math.round(x.monto/x.ventas):0; const mx=Math.max(P.monto||0,M.monto||0,1);

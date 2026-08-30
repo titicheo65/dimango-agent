@@ -92,6 +92,8 @@ async def lifespan(app: FastAPI):
     await inicializar_notas()
     from agent.delegaciones import inicializar_delegaciones
     await inicializar_delegaciones()
+    from agent.equipo import inicializar_equipo
+    await inicializar_equipo()
     logger.info("Base de datos inicializada")
     logger.info(f"Servidor AgentKit corriendo en puerto {PORT}")
     logger.info(f"Proveedor de WhatsApp: {proveedor.__class__.__name__}")
@@ -591,6 +593,24 @@ async def maximus_panel_agentes(request: Request):
         raise HTTPException(status_code=401, detail="No autorizado")
     from agent import paneles
     return JSONResponse(await paneles.agentes_panel(), headers={"Cache-Control": "no-store"})
+
+
+@app.post("/maximus/agente/nombre")
+async def maximus_agente_nombre(request: Request):
+    """Renombra un agente desde la UI del Command Center (persiste el nombre)."""
+    if not _maximus_token_ok(request):
+        raise HTTPException(status_code=401, detail="No autorizado")
+    try:
+        datos = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="JSON inválido")
+    clave = (datos.get("clave") or "").strip()
+    nombre = (datos.get("nombre") or "").strip()
+    if not clave or not nombre:
+        raise HTTPException(status_code=400, detail="Falta clave o nombre")
+    from agent.equipo import set_nombre
+    await set_nombre(clave, nombre)
+    return JSONResponse({"ok": True})
 
 
 @app.get("/maximus/panel/delegaciones")

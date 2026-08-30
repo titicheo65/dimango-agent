@@ -500,6 +500,24 @@ HERRAMIENTAS = [
             "required": ["agente"],
         },
     },
+    {
+        "name": "nombrar_agente",
+        "description": (
+            "Ponle un nombre propio a uno de tus agentes cuando Ricardo lo pida "
+            "('ponle Alfredo al advisor', 'al agente de correo llámalo Sofía', 'al cerebro dile Max'). "
+            "El nombre aparece en el panel de Equipo/Agentes. 'agente' es la clave del agente: "
+            "cerebro, voz, memoria, vision, whatsapp, instagram, messenger, telegram, alertas_venta, "
+            "colacion, checklist_op, advisor, correo, vigilante, sync_memoria, checklist_repo."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "agente": {"type": "string", "description": "Clave del agente (ver la descripción)."},
+                "nombre": {"type": "string", "description": "El nombre a ponerle."},
+            },
+            "required": ["agente", "nombre"],
+        },
+    },
 ]
 
 # Herramienta de servidor de Anthropic — Claude busca y trae los
@@ -980,6 +998,17 @@ async def ejecutar_herramienta(nombre: str, args: dict) -> str:
             await eventos.publicar("panel", accion="abrir", panel="delegaciones")
             destino = agente if (agente and tarea) else ""
             return f'Anoté la delegación: "{tarea or agente}"' + (f" → {destino}." if destino else ".") + " Queda pendiente."
+
+        if nombre == "nombrar_agente":
+            from agent.equipo import set_nombre
+            from agent import eventos
+            clave = (args.get("agente") or "").strip().lower()
+            nombre_nuevo = (args.get("nombre") or "").strip()
+            if not clave or not nombre_nuevo:
+                return "Necesito el agente y el nombre."
+            await set_nombre(clave, nombre_nuevo)
+            await eventos.publicar("panel", accion="abrir", panel="agentes")
+            return f"Listo, ahora el agente '{clave}' se llama {nombre_nuevo}."
 
     except Exception as e:
         logger.error(f"[MAXIMUS] Herramienta {nombre} falló: {e}")
