@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Maximus Command Center</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
@@ -140,6 +140,19 @@
   .agente .an{color:var(--ink);font-weight:600;flex:none}
   .agente .ar{color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
   .agente .ae{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--faint);text-transform:uppercase;flex:none}
+  .cmp{display:flex;gap:16px;align-items:flex-end}
+  .cmpcol{flex:1;text-align:center}
+  .cmph{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin-bottom:8px}
+  .cmpbar{height:110px;display:flex;align-items:flex-end;justify-content:center;background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:6px}
+  .cmpfill{width:58%;border-radius:6px 6px 0 0;min-height:4px;transition:height .6s}
+  .cmpkpi{font-family:var(--display);font-weight:700;font-size:19px;margin:9px 0 6px}
+  .cmprow{display:flex;justify-content:space-between;font-size:12.5px;color:var(--muted);padding:3px 2px}
+  .cmprow b{color:var(--ink);font-family:var(--mono)}
+  .act{display:flex;align-items:baseline;gap:9px;padding:5px 0;border-bottom:1px solid var(--line-soft);font-size:13px}
+  .act:last-child{border-bottom:0}
+  .acticon{flex:none}
+  .acttx{color:var(--muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .actt{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--faint);flex:none}
   .skel{color:var(--faint);font-family:var(--mono);font-size:12px;letter-spacing:.05em}
   .err{color:var(--crit);font-size:13px}
 
@@ -170,6 +183,31 @@
   .setup label{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);display:block;margin:14px 0 6px}
   .setup input{width:100%;background:var(--panel-2);border:1px solid var(--line);color:var(--ink);padding:12px 14px;border-radius:10px;font-family:var(--mono);font-size:14px}
   .setup button{margin-top:22px;width:100%;background:var(--accent);color:#04222a;border:none;padding:13px;border-radius:10px;font-family:var(--display);font-weight:700;letter-spacing:.06em;font-size:15px;cursor:pointer}
+  /* ---- iPhone / móvil ---- */
+  @media(max-width:680px){
+    .topbar{gap:8px 12px;padding:calc(9px + env(safe-area-inset-top)) 14px 9px}
+    .brand b{font-size:13px}
+    .orb{width:22px;height:22px}
+    .sb{font-size:11px}
+    #clock{font-size:12px}
+    .state{font-size:10px;padding:5px 10px;letter-spacing:.1em}
+    .home{gap:16px;padding:16px}
+    .home h1{font-size:26px;letter-spacing:.16em}
+    .home .greet{font-size:14px}
+    .home .kpis{gap:9px}
+    .kpi-card{min-width:94px;padding:10px 13px}
+    .kpi-card .val{font-size:17px}
+    .home .hint{font-size:11px;line-height:2.1}
+    .bigface{width:min(58vmin,220px)}
+    .bigorb{width:120px;height:120px}
+    .panels{grid-template-columns:1fr;padding:12px;gap:12px}
+    .panel{min-height:170px}
+    .voicebar{gap:9px;padding:10px 14px calc(11px + env(safe-area-inset-bottom));flex-wrap:wrap}
+    .mic{order:1;width:46px;height:46px;font-size:19px}
+    .vtext{order:2;flex:1 1 60%;min-width:0}
+    #textin{order:3;flex:1 1 100%;width:auto}
+    .homebtn{order:4;padding:10px 14px;font-size:11px}
+  }
   @media(prefers-reduced-motion:reduce){*{animation:none!important}}
 </style>
 </head>
@@ -287,7 +325,7 @@
   }
   function maxiPanel(tipo, on){ const p=panels.find(x=>x.tipo===(tipo||'').toLowerCase()); if(p){ panels.forEach(x=>x.maxi=false); p.maxi = on!==false; } render(); syncStage(); }
 
-  const TITLES = {ventas:'Ventas hoy', top_productos:'Top productos', checklist:'Checklist', alertas:'Alertas', correo:'Correos', calendario:'Calendario', memoria:'Memoria', agentes:'Agentes'};
+  const TITLES = {ventas:'Ventas hoy', top_productos:'Top productos', checklist:'Checklist', alertas:'Alertas', correo:'Correos', calendario:'Calendario', memoria:'Memoria', agentes:'Agentes', comparativa:'Mall ⇄ Playa', actividad:'Actividad', resumen:'Resumen del día'};
   function render(){
     panelsEl.innerHTML='';
     panels.forEach(p=>{
@@ -312,6 +350,15 @@
   }
   let ventasCache=null, ventasT=0;
   async function ventas(){ if(ventasCache && Date.now()-ventasT<20000) return ventasCache; ventasCache=await getJSON('/maximus/panel/ventas'); ventasT=Date.now(); return ventasCache; }
+
+  // ---- feed de actividad (alimentado por SSE) ----
+  let activityLog = [];
+  function renderActividad(){ if(!activityLog.length) return '<div class="muted">Sin actividad reciente. Háblale a Maximus…</div>';
+    return activityLog.slice(-50).reverse().map(a=>`<div class="act"><span class="acticon">${a.ic}</span><span class="acttx">${a.txt}</span><span class="actt">${a.hora}</span></div>`).join(''); }
+  function logAct(ic, txt){ const d=new Date();
+    activityLog.push({ic, txt, hora:d.toLocaleTimeString('es-CL',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false})});
+    if(activityLog.length>150) activityLog.shift();
+    const p=panels.find(x=>x.tipo==='actividad'); if(p){ const b=bodyOf(p); if(b) b.innerHTML=renderActividad(); } }
 
   // ---- grafo de memoria (D3) ----
   let lastNotas = [];
@@ -398,6 +445,25 @@
       Object.keys(grupos).forEach(g=>{ out+=`<div class="agrp">${g}</div>`;
         grupos[g].forEach(x=>{ out+=`<div class="agente"><span class="adot ${dot(x.estado)}"></span><span class="an">${x.nombre}</span><span class="ar">${x.rol}</span><span class="ae">${x.estado}</span></div>`; }); });
       return out; },
+    async comparativa(p){ const d=await ventas(); const pl=d.por_local||{}; const P=pl.playa||{monto:0,ventas:0}, M=pl.mall||{monto:0,ventas:0};
+      const tk=x=> x.ventas? Math.round(x.monto/x.ventas):0; const mx=Math.max(P.monto||0,M.monto||0,1);
+      const col=(nombre,x,c)=>`<div class="cmpcol"><div class="cmph">${nombre}</div>
+        <div class="cmpbar"><div class="cmpfill" style="height:${Math.round((x.monto||0)/mx*100)}%;background:${c}"></div></div>
+        <div class="cmpkpi">$${money(x.monto)}</div>
+        <div class="cmprow"><span>Ventas</span><b>${x.ventas||0}</b></div>
+        <div class="cmprow"><span>Ticket prom.</span><b>$${moneyFull(tk(x))}</b></div></div>`;
+      const dif = (M.monto&&P.monto)? Math.round((Math.max(P.monto,M.monto)/Math.min(P.monto,M.monto)-1)*100):0;
+      const lider = (P.monto||0)>=(M.monto||0)?'Playa':'Mall';
+      return `<div class="cmp">${col('Playa',P,'var(--accent)')}${col('Mall',M,'var(--violet)')}</div>
+        <div class="muted" style="text-align:center;margin-top:12px">${dif? lider+' lidera por '+dif+'%' : 'Empate técnico'}</div>`; },
+    async actividad(p){ return renderActividad(); },
+    async resumen(p){ let d; try{ d=await ventas(); }catch(e){ return '<div class="err">Sin datos ('+(e.message||e)+').</div>'; }
+      const pl=d.por_local||{}; const P=pl.playa||{monto:0}, M=pl.mall||{monto:0}; const tot=(P.monto||0)+(M.monto||0);
+      const top=(d.top_productos||[]).slice(0,3); const bajo=(d.stock_bajo||[]);
+      return `<div class="kpi"><span class="cur">$</span>${moneyFull(tot)}</div>
+        <div class="muted" style="margin:2px 0 12px">Total del día · Playa $${money(P.monto)} · Mall $${money(M.monto)}</div>
+        <div class="agrp">Top del día</div>${top.length? top.map((x,i)=>`<div class="row"><span class="n">${i+1} · ${x.nombre}</span><span class="v">${x.cantidad}</span></div>`).join(''):'<div class="muted">Sin ventas aún.</div>'}
+        <div class="agrp">Alertas</div>${bajo.length? bajo.slice(0,5).map(s=>`<span class="chip crit">● ${s.nombre} (${s.local})</span>`).join('') : '<div class="chip good">✓ Sin stock bajo</div>'}`; },
     async memoria(p, body){
       if(typeof d3==='undefined') return '<div class="muted">Cargando la librería del grafo… recarga si tarda.</div>';
       let data; try{ data=await getJSON('/maximus/panel/grafo'); }catch(e){ return '<div class="err">No pude cargar la memoria ('+(e.message||e)+').</div>'; }
@@ -432,11 +498,11 @@
     es.onerror=()=>{ el('d-conn').classList.add('off'); el('v-conn').textContent='reconectando…'; };
     es.onmessage=(ev)=>{ let m; try{ m=JSON.parse(ev.data); }catch(e){ return; }
       switch(m.tipo){
-        case 'escuchando': setState('escucha'); break;
-        case 'pensando': setState('piensa'); break;
-        case 'ejecutando': setState('ejecuta'); break;
-        case 'respondiendo': setState('habla'); break;
-        case 'panel': handlePanel(m); break;
+        case 'escuchando': setState('escucha'); logAct('🎙️','Escuchando'+(m.mensaje?': "'+m.mensaje+'"':'')); break;
+        case 'pensando': setState('piensa'); logAct('🧠','Pensando…'); break;
+        case 'ejecutando': setState('ejecuta'); logAct('⚙️','Ejecutó: '+(m.herramienta||'—')); break;
+        case 'respondiendo': setState('habla'); logAct('💬','Respondió'+(m.texto?': "'+String(m.texto).slice(0,70)+'…"':'')); break;
+        case 'panel': handlePanel(m); logAct('🪄',(m.accion||'abrir')+' · '+(m.panel||'')); break;
       }
     };
   }
@@ -493,7 +559,7 @@
       if(e.results[e.results.length-1].isFinal){ ask(txt.trim(), true); } };
     rec.onerror=()=>{ listening=false; el('mic').classList.remove('live'); setState('espera'); };
   }
-  function toggleMic(){ if(!rec){ if(!SR){ alert('Este navegador no soporta reconocimiento de voz. Usa Chrome.'); return; } initSR(); }
+  function toggleMic(){ if(!rec){ if(!SR){ el('transcript').innerHTML='🎙️ El micrófono por voz no está disponible en este navegador (pasa en Safari de iPhone). Escribe abajo 👇 y Maximus te responde por voz.'; el('textin').focus(); return; } initSR(); }
     if(listening){ rec.stop(); } else { try{ rec.start(); }catch(e){} } }
   el('mic').onclick=()=>{ unlockAudio(); toggleMic(); };
   document.addEventListener('keydown',(e)=>{ if(e.code==='Space' && document.activeElement.id!=='textin' && document.activeElement.id!=='tok' && document.activeElement.id!=='srv'){ e.preventDefault(); toggleMic(); } });

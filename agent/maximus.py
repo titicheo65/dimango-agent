@@ -452,14 +452,15 @@ HERRAMIENTAS = [
                 },
                 "panel": {
                     "type": "string",
-                    "enum": ["ventas", "top_productos", "checklist", "alertas", "correo", "calendario", "memoria", "agentes", "todos"],
+                    "enum": ["ventas", "top_productos", "checklist", "alertas", "correo", "calendario",
+                             "memoria", "agentes", "comparativa", "actividad", "resumen", "todos"],
                     "description": (
                         "Qué panel. 'ventas' del día por local, 'top_productos' los más vendidos, "
                         "'checklist' insumos a reponer, 'alertas', 'correo', 'calendario', 'memoria' "
-                        "(tu grafo de memoria: se ilumina con las notas que usas al responder — ábrelo "
-                        "si Ricardo pregunta qué recuerdas, de dónde sacas algo, o pide ver tu cerebro/memoria), "
-                        "y 'agentes' (roster de tus agentes/automatizaciones y su estado — ábrelo si Ricardo "
-                        "pide ver 'mis agentes', 'tus agentes' o qué está corriendo). "
+                        "(grafo de memoria que se ilumina con las notas que usas), 'agentes' (roster y estado), "
+                        "'comparativa' (Mall vs Playa lado a lado — ábrelo si Ricardo dice 'compara los locales', "
+                        "'compárame Mall con Playa'), 'actividad' (feed en vivo de lo que estás haciendo/ejecutando — "
+                        "ábrelo si pide ver tu actividad o qué estás haciendo), 'resumen' (resumen del día en un panel). "
                         "Para accion 'cerrar' usa 'todos' para cerrar todo."
                     ),
                 },
