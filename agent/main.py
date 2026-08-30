@@ -591,6 +591,25 @@ async def maximus_panel_agentes(request: Request):
     return JSONResponse(await paneles.agentes_panel(), headers={"Cache-Control": "no-store"})
 
 
+@app.post("/maximus/escuchar")
+async def maximus_escuchar(request: Request):
+    """Recibe un audio grabado por el navegador (iPhone/Safari graba en mp4) y lo
+    transcribe con Groq Whisper. Da micrófono real donde el navegador no tiene STT
+    propio (Safari de iOS). El cuerpo es el audio crudo; el mime va en Content-Type."""
+    if not _maximus_token_ok(request):
+        raise HTTPException(status_code=401, detail="No autorizado")
+    audio = await request.body()
+    if not audio or len(audio) < 400:
+        raise HTTPException(status_code=400, detail="Audio vacío o muy corto")
+    mime = (request.headers.get("content-type", "audio/mp4").split(";")[0].strip() or "audio/mp4")
+    ext = {"audio/mp4": "m4a", "audio/x-m4a": "m4a", "audio/aac": "m4a",
+           "audio/webm": "webm", "audio/ogg": "ogg", "audio/wav": "wav",
+           "audio/mpeg": "mp3"}.get(mime, "m4a")
+    from agent.transcripcion import transcribir_audio
+    texto = await transcribir_audio(audio, f"audio.{ext}", mime)
+    return JSONResponse({"texto": texto}, headers={"Cache-Control": "no-store"})
+
+
 @app.get("/maximus/foto")
 async def maximus_foto():
     """La foto de Maximus (el perro) para el centro del Display."""

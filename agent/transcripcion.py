@@ -20,7 +20,7 @@ GROQ_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 GROQ_MODEL = "whisper-large-v3-turbo"  # Rápido y económico, buen español
 
 
-async def transcribir_audio(audio_bytes: bytes, nombre_archivo: str = "audio.ogg") -> str:
+async def transcribir_audio(audio_bytes: bytes, nombre_archivo: str = "audio.ogg", mime: str = "audio/ogg") -> str:
     """
     Transcribe un audio (en bytes) a texto en español usando Groq.
 
@@ -36,7 +36,7 @@ async def transcribir_audio(audio_bytes: bytes, nombre_archivo: str = "audio.ogg
         return ""
 
     headers = {"Authorization": f"Bearer {GROQ_API_KEY}"}
-    files = {"file": (nombre_archivo, audio_bytes, "audio/ogg")}
+    files = {"file": (nombre_archivo, audio_bytes, mime or "audio/ogg")}
     data = {"model": GROQ_MODEL, "language": "es"}
 
     try:

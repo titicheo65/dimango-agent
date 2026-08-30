@@ -559,8 +559,39 @@
       if(e.results[e.results.length-1].isFinal){ ask(txt.trim(), true); } };
     rec.onerror=()=>{ listening=false; el('mic').classList.remove('live'); setState('espera'); };
   }
-  function toggleMic(){ if(!rec){ if(!SR){ el('transcript').innerHTML='🎙️ El micrófono por voz no está disponible en este navegador (pasa en Safari de iPhone). Escribe abajo 👇 y Maximus te responde por voz.'; el('textin').focus(); return; } initSR(); }
-    if(listening){ rec.stop(); } else { try{ rec.start(); }catch(e){} } }
+  // Micrófono por GRABACIÓN + Groq Whisper — funciona donde el navegador no tiene STT propio (iPhone/Safari).
+  let mediaRec=null, mediaChunks=[], recording=false, micStream=null;
+  async function startRecording(){
+    if(!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) || typeof MediaRecorder==='undefined'){
+      el('transcript').innerHTML='Este navegador no permite grabar. Escribe abajo 👇'; el('textin').focus(); return; }
+    try{
+      micStream = await navigator.mediaDevices.getUserMedia({audio:true});
+      mediaChunks=[];
+      const mime = MediaRecorder.isTypeSupported('audio/mp4')?'audio/mp4':(MediaRecorder.isTypeSupported('audio/webm')?'audio/webm':'');
+      mediaRec = mime ? new MediaRecorder(micStream,{mimeType:mime}) : new MediaRecorder(micStream);
+      mediaRec.ondataavailable=e=>{ if(e.data && e.data.size) mediaChunks.push(e.data); };
+      mediaRec.onstop=async()=>{ recording=false; el('mic').classList.remove('live');
+        try{ micStream.getTracks().forEach(t=>t.stop()); }catch(e){}
+        const blob=new Blob(mediaChunks,{type:(mediaRec && mediaRec.mimeType)||'audio/mp4'});
+        if(blob.size<600){ setState('espera'); return; }
+        setState('piensa'); el('transcript').textContent='Transcribiendo…'; el('reply').textContent='';
+        try{
+          const r=await fetch(base()+'/maximus/escuchar', {method:'POST', headers:{'x-maximus-token':cfg.token||'','Content-Type':blob.type}, body:blob});
+          if(!r.ok) throw new Error('HTTP '+r.status);
+          const d=await r.json(); const txt=(d.texto||'').trim();
+          if(txt){ ask(txt, true); } else { el('transcript').textContent='No te entendí, ¿repites?'; setState('espera'); }
+        }catch(e){ el('reply').innerHTML='<span class="err">No pude transcribir ('+(e.message||e)+').</span>'; setState('espera'); }
+      };
+      mediaRec.start(); recording=true; el('mic').classList.add('live'); setState('escucha'); stopAudio();
+    }catch(e){ el('transcript').innerHTML='No pude acceder al micrófono — revisa el permiso. '+(e.name||''); }
+  }
+  function stopRecording(){ try{ if(mediaRec && recording) mediaRec.stop(); }catch(e){} }
+
+  function toggleMic(){ unlockAudio();
+    if(SR){ if(!rec) initSR(); if(listening){ rec.stop(); } else { try{ rec.start(); }catch(e){} } return; }
+    // Sin STT del navegador (iPhone/Safari): grabar y transcribir con Groq.
+    if(recording){ stopRecording(); } else { startRecording(); }
+  }
   el('mic').onclick=()=>{ unlockAudio(); toggleMic(); };
   document.addEventListener('keydown',(e)=>{ if(e.code==='Space' && document.activeElement.id!=='textin' && document.activeElement.id!=='tok' && document.activeElement.id!=='srv'){ e.preventDefault(); toggleMic(); } });
   el('textin').addEventListener('keydown',(e)=>{ if(e.key==='Enter'){ unlockAudio(); const t=el('textin').value.trim(); el('textin').value=''; ask(t,false); } });
