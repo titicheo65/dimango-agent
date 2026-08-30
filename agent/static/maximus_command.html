@@ -257,8 +257,6 @@
     <p>Pega el token de Maximus para conectar esta pantalla. Se guarda solo en este equipo.</p>
     <label>Token</label>
     <input id="tok" type="password" placeholder="MAXIMUS_CHAT_TOKEN" autocomplete="off">
-    <label>Servidor (opcional)</label>
-    <input id="srv" placeholder="https://maximus.ngrok.app">
     <button id="save">Conectar</button>
   </div>
 </div>
@@ -268,10 +266,13 @@
 (function(){
   // ---------- config ----------
   const LS='maximus_cc';
+  // ?reset o ?nuevo limpia la config y muestra el setup de nuevo (útil en el iPhone).
+  if(/[?&](reset|nuevo)/i.test(location.search)){ try{ localStorage.removeItem(LS); }catch(e){} }
   let cfg = {};
   try{ cfg = JSON.parse(localStorage.getItem(LS)||'{}'); }catch(e){ cfg={}; }
   const el = id => document.getElementById(id);
-  const base = () => { let s=(cfg.srv||'').trim(); if(!s) return ''; if(!/^https?:\/\//i.test(s)) s='https://'+s; return s.replace(/\/$/,''); };
+  // Siempre mismo origen: el Command Center habla con el servidor que lo sirvió. Sin campo "Servidor" que romper.
+  const base = () => '';
   const hdr = () => ({'x-maximus-token': cfg.token||'', 'Content-Type':'application/json'});
   const money = n => { n = Number(n||0); return n>=1e6 ? (n/1e6).toFixed(n>=1e7?0:1)+'M' : n.toLocaleString('es-CL'); };
   const moneyFull = n => Number(n||0).toLocaleString('es-CL');
@@ -279,7 +280,6 @@
   if(!cfg.token){ el('setup').style.display='flex'; }
   el('save').onclick = ()=>{
     cfg.token = el('tok').value.trim();
-    cfg.srv = el('srv').value.trim();
     if(!cfg.token) return;
     localStorage.setItem(LS, JSON.stringify(cfg));
     el('setup').style.display='none';
