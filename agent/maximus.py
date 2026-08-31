@@ -230,6 +230,33 @@ HERRAMIENTAS = [
         },
     },
     {
+        "name": "editar_mesa_dimango",
+        "description": (
+            "Escribe sobre una mesa real en DiMangoToGo: marcarla como "
+            "CORTESÍA (condona el cobro, cierra la mesa, la libera) o "
+            "QUITAR una cantidad de un ítem de su comanda (por error de "
+            "digitación, ej. cobraron 2 y era 1). Esto TOCA DINERO REAL y "
+            "el turno de caja del día — exige SIEMPRE la clave de "
+            "supervisor de Modo Jefe, igual que en el panel de Caja. Si "
+            "Ricardo no te dio la clave todavía, pídesela antes de llamar "
+            "esta herramienta — nunca la inventes ni la reutilices de un "
+            "turno anterior. Para cortesía, el motivo es obligatorio."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "local": {"type": "string", "enum": ["playa", "mall"]},
+                "mesa_numero": {"type": "string", "description": "Número de mesa, tal como en la app."},
+                "accion": {"type": "string", "enum": ["cortesia", "quitar_item"]},
+                "clave": {"type": "string", "description": "Clave de supervisor/Modo Jefe que Ricardo te dio para ESTA acción."},
+                "motivo": {"type": "string", "description": "Obligatorio si accion es 'cortesia'."},
+                "nombre_item": {"type": "string", "description": "Obligatorio si accion es 'quitar_item' — nombre del producto tal como aparece en la venta."},
+                "cantidad": {"type": "integer", "description": "Solo para 'quitar_item'. Unidades a quitar, por defecto 1."},
+            },
+            "required": ["local", "mesa_numero", "accion", "clave"],
+        },
+    },
+    {
         "name": "crear_alerta_venta",
         "description": (
             "Crea una alerta que avisa por WhatsApp cuando se vende cierta "
@@ -543,6 +570,7 @@ WEB_SEARCH_TOOL = {
 
 DIMANGOTOGO_URL = "https://dimangotogo.base44.app/functions/maximusVentas"
 DIMANGOTOGO_CHECKLIST_URL = "https://dimangotogo.base44.app/functions/maximusChecklist"
+DIMANGOTOGO_EDITAR_MESA_URL = "https://dimangotogo.base44.app/functions/maximusEditarMesa"
 DIMANGOTOGO_SECRET = os.getenv("DIMANGOTOGO_MAXIMUS_SECRET", "")
 
 DIMANGOWORKING_GASTOS_URL = "https://dimangoworking.base44.app/functions/maximusGastos"
@@ -765,6 +793,36 @@ async def ejecutar_herramienta(nombre: str, args: dict) -> str:
             else:
                 partes.append("\nNo hay insumos con receta vinculada en este rango.")
             return "\n".join(partes)
+
+        if nombre == "editar_mesa_dimango":
+            if not DIMANGOTOGO_SECRET:
+                return ("No puedo escribir en DiMangoToGo: falta DIMANGOTOGO_MAXIMUS_SECRET "
+                        "en el .env del servidor. Avísale a Ricardo.")
+            if not (args.get("clave") or "").strip():
+                return "Necesito la clave de supervisor/Modo Jefe para hacer esto. Pídesela a Ricardo."
+            if args.get("accion") == "cortesia" and not (args.get("motivo") or "").strip():
+                return "El motivo de la cortesía es obligatorio."
+            if args.get("accion") == "quitar_item" and not (args.get("nombre_item") or "").strip():
+                return "Necesito el nombre exacto del producto a quitar."
+            import httpx
+            payload = {k: args[k] for k in
+                       ("local", "mesa_numero", "accion", "clave", "motivo", "nombre_item", "cantidad")
+                       if args.get(k) is not None}
+            try:
+                async with httpx.AsyncClient(timeout=20) as c:
+                    r = await c.post(
+                        DIMANGOTOGO_EDITAR_MESA_URL,
+                        json=payload,
+                        headers={"x-maximus-secret": DIMANGOTOGO_SECRET},
+                    )
+            except httpx.RequestError as e:
+                return f"No pude conectar con DiMangoToGo: {e}"
+            if r.status_code != 200:
+                return f"DiMangoToGo respondió {r.status_code}: {r.text[:300]}"
+            d = r.json()
+            if not d.get("ok"):
+                return f"No se pudo: {d.get('error', 'error desconocido')}"
+            return d.get("mensaje", "Listo.")
 
         if nombre == "crear_alerta_venta":
             from agent.alertas_venta import crear_alerta
