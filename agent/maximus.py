@@ -257,6 +257,29 @@ HERRAMIENTAS = [
         },
     },
     {
+        "name": "stock_dimango",
+        "description": (
+            "Activa o desactiva el control de stock de un producto, o le "
+            "cambia la cantidad disponible, por local (Playa o Mall) — "
+            "misma lógica que las pantallas /StockEnVivo y /StockEnVivoMall "
+            "de DiMangoToGo. Al desactivar, el producto queda disponible "
+            "sin límite. Al poner cantidad en 0, el producto deja de "
+            "poder venderse hasta que se le suba stock. Si el nombre del "
+            "producto es ambiguo (calza con varios), te lo dirá — no "
+            "adivines cuál era, pide el nombre completo."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "local": {"type": "string", "enum": ["playa", "mall"]},
+                "producto": {"type": "string", "description": "Nombre (o parte) del producto."},
+                "accion": {"type": "string", "enum": ["activar", "desactivar", "cantidad"]},
+                "cantidad": {"type": "integer", "description": "Obligatorio si accion es 'cantidad'."},
+            },
+            "required": ["local", "producto", "accion"],
+        },
+    },
+    {
         "name": "crear_alerta_venta",
         "description": (
             "Crea una alerta que avisa por WhatsApp cuando se vende cierta "
@@ -571,6 +594,7 @@ WEB_SEARCH_TOOL = {
 DIMANGOTOGO_URL = "https://dimangotogo.base44.app/functions/maximusVentas"
 DIMANGOTOGO_CHECKLIST_URL = "https://dimangotogo.base44.app/functions/maximusChecklist"
 DIMANGOTOGO_EDITAR_MESA_URL = "https://dimangotogo.base44.app/functions/maximusEditarMesa"
+DIMANGOTOGO_STOCK_URL = "https://dimangotogo.base44.app/functions/maximusStock"
 DIMANGOTOGO_SECRET = os.getenv("DIMANGOTOGO_MAXIMUS_SECRET", "")
 
 DIMANGOWORKING_GASTOS_URL = "https://dimangoworking.base44.app/functions/maximusGastos"
@@ -812,6 +836,30 @@ async def ejecutar_herramienta(nombre: str, args: dict) -> str:
                 async with httpx.AsyncClient(timeout=20) as c:
                     r = await c.post(
                         DIMANGOTOGO_EDITAR_MESA_URL,
+                        json=payload,
+                        headers={"x-maximus-secret": DIMANGOTOGO_SECRET},
+                    )
+            except httpx.RequestError as e:
+                return f"No pude conectar con DiMangoToGo: {e}"
+            if r.status_code != 200:
+                return f"DiMangoToGo respondió {r.status_code}: {r.text[:300]}"
+            d = r.json()
+            if not d.get("ok"):
+                return f"No se pudo: {d.get('error', 'error desconocido')}"
+            return d.get("mensaje", "Listo.")
+
+        if nombre == "stock_dimango":
+            if not DIMANGOTOGO_SECRET:
+                return ("No puedo escribir en DiMangoToGo: falta DIMANGOTOGO_MAXIMUS_SECRET "
+                        "en el .env del servidor. Avísale a Ricardo.")
+            if args.get("accion") == "cantidad" and args.get("cantidad") is None:
+                return "Necesito la cantidad exacta."
+            import httpx
+            payload = {k: args[k] for k in ("local", "producto", "accion", "cantidad") if args.get(k) is not None}
+            try:
+                async with httpx.AsyncClient(timeout=20) as c:
+                    r = await c.post(
+                        DIMANGOTOGO_STOCK_URL,
                         json=payload,
                         headers={"x-maximus-secret": DIMANGOTOGO_SECRET},
                     )
