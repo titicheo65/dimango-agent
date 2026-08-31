@@ -280,6 +280,29 @@ HERRAMIENTAS = [
         },
     },
     {
+        "name": "egreso_caja_dimango",
+        "description": (
+            "Registra un egreso de caja (retiro de efectivo, ej. pago a un "
+            "proveedor en efectivo, vuelto, compra menor) — misma lógica "
+            "que el botón 💸 Egreso de Caja.jsx. Se descuenta del efectivo "
+            "esperado en la cuadratura del turno, NO afecta la venta del "
+            "día. Exige SIEMPRE la clave de supervisor de Modo Jefe, igual "
+            "que en el panel — pídesela a Ricardo si no la tienes, nunca "
+            "la inventes ni reutilices una de un pedido anterior. Falla si "
+            "no hay turno de caja abierto en ese local."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "local": {"type": "string", "enum": ["playa", "mall"]},
+                "monto": {"type": "integer", "description": "Monto a retirar, en pesos chilenos."},
+                "motivo": {"type": "string", "description": "Obligatorio — ej. 'pago proveedor encomienda'."},
+                "clave": {"type": "string", "description": "Clave de supervisor/Modo Jefe que Ricardo te dio para ESTA acción."},
+            },
+            "required": ["local", "monto", "motivo", "clave"],
+        },
+    },
+    {
         "name": "crear_alerta_venta",
         "description": (
             "Crea una alerta que avisa por WhatsApp cuando se vende cierta "
@@ -595,6 +618,7 @@ DIMANGOTOGO_URL = "https://dimangotogo.base44.app/functions/maximusVentas"
 DIMANGOTOGO_CHECKLIST_URL = "https://dimangotogo.base44.app/functions/maximusChecklist"
 DIMANGOTOGO_EDITAR_MESA_URL = "https://dimangotogo.base44.app/functions/maximusEditarMesa"
 DIMANGOTOGO_STOCK_URL = "https://dimangotogo.base44.app/functions/maximusStock"
+DIMANGOTOGO_EGRESO_URL = "https://dimangotogo.base44.app/functions/maximusEgreso"
 DIMANGOTOGO_SECRET = os.getenv("DIMANGOTOGO_MAXIMUS_SECRET", "")
 
 DIMANGOWORKING_GASTOS_URL = "https://dimangoworking.base44.app/functions/maximusGastos"
@@ -860,6 +884,34 @@ async def ejecutar_herramienta(nombre: str, args: dict) -> str:
                 async with httpx.AsyncClient(timeout=20) as c:
                     r = await c.post(
                         DIMANGOTOGO_STOCK_URL,
+                        json=payload,
+                        headers={"x-maximus-secret": DIMANGOTOGO_SECRET},
+                    )
+            except httpx.RequestError as e:
+                return f"No pude conectar con DiMangoToGo: {e}"
+            if r.status_code != 200:
+                return f"DiMangoToGo respondió {r.status_code}: {r.text[:300]}"
+            d = r.json()
+            if not d.get("ok"):
+                return f"No se pudo: {d.get('error', 'error desconocido')}"
+            return d.get("mensaje", "Listo.")
+
+        if nombre == "egreso_caja_dimango":
+            if not DIMANGOTOGO_SECRET:
+                return ("No puedo escribir en DiMangoToGo: falta DIMANGOTOGO_MAXIMUS_SECRET "
+                        "en el .env del servidor. Avísale a Ricardo.")
+            if not (args.get("clave") or "").strip():
+                return "Necesito la clave de supervisor/Modo Jefe para hacer esto. Pídesela a Ricardo."
+            if not (args.get("motivo") or "").strip():
+                return "El motivo del egreso es obligatorio."
+            if not (args.get("monto") or 0) > 0:
+                return "Necesito un monto mayor a 0."
+            import httpx
+            payload = {k: args[k] for k in ("local", "monto", "motivo", "clave") if args.get(k) is not None}
+            try:
+                async with httpx.AsyncClient(timeout=20) as c:
+                    r = await c.post(
+                        DIMANGOTOGO_EGRESO_URL,
                         json=payload,
                         headers={"x-maximus-secret": DIMANGOTOGO_SECRET},
                     )
