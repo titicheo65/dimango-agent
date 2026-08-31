@@ -16,7 +16,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
 from agent.brain import generar_respuesta
-from agent.memory import inicializar_db, guardar_mensaje, obtener_historial, esta_pausada, guardar_nombre
+from agent.memory import (
+    inicializar_db, guardar_mensaje, obtener_historial, esta_pausada, guardar_nombre,
+    listar_conversaciones_privadas, obtener_conversacion_completa, es_privada,
+)
 from agent.providers import obtener_proveedor
 from agent.admin import router as admin_router
 from agent.colacion import (
@@ -543,6 +546,17 @@ def _maximus_token_ok(request: Request) -> bool:
     return bool(tok) and request.headers.get("x-maximus-token", "") == tok
 
 
+def _maximus_token_ok_header_o_query(request: Request) -> bool:
+    """Como _maximus_token_ok, pero también acepta ?token=... — para que
+    Ricardo pueda abrir /maximus/historial directo en el navegador, sin
+    configurar headers a mano (mismo criterio que /maximus/eventos)."""
+    tok = os.getenv("MAXIMUS_CHAT_TOKEN", "")
+    if not tok:
+        return False
+    return (request.headers.get("x-maximus-token", "") == tok
+            or request.query_params.get("token", "") == tok)
+
+
 @app.get("/maximus/panel/ventas")
 async def maximus_panel_ventas(request: Request):
     """Ventas por local + medios de pago + top productos + stock bajo. Alimenta 3 paneles."""
@@ -601,6 +615,136 @@ async def maximus_panel_agentes(request: Request):
         raise HTTPException(status_code=401, detail="No autorizado")
     from agent import paneles
     return JSONResponse(await paneles.agentes_panel(), headers={"Cache-Control": "no-store"})
+
+
+# ════════════════════════════════════════════════════════════
+# Historial privado de Ricardo con Maximus — separado a propósito de
+# /admin (que usan los cajeros con una clave compartida). Ver P-011.
+# ════════════════════════════════════════════════════════════
+
+@app.get("/maximus/historial")
+async def maximus_historial_pagina(request: Request):
+    """Página HTML simple para revisar el historial con Maximus, protegida
+    con el mismo token que /maximus/display -- no la clave de /admin."""
+    if not _maximus_token_ok_header_o_query(request):
+        raise HTTPException(status_code=401, detail="No autorizado")
+    return HTMLResponse(HISTORIAL_HTML)
+
+
+@app.get("/maximus/historial/api")
+async def maximus_historial_lista(request: Request):
+    """Lista de tus conversaciones con Maximus (WhatsApp, Telegram, cerebro web)."""
+    if not _maximus_token_ok_header_o_query(request):
+        raise HTTPException(status_code=401, detail="No autorizado")
+    return JSONResponse(await listar_conversaciones_privadas(), headers={"Cache-Control": "no-store"})
+
+
+@app.get("/maximus/historial/api/{clave:path}")
+async def maximus_historial_detalle(clave: str, request: Request):
+    """Mensajes de una de tus conversaciones. Nunca sirve una conversación
+    de cliente aunque alguien adivine la clave -- doble chequeo con
+    es_privada(), igual que hace /admin al revés."""
+    if not _maximus_token_ok_header_o_query(request):
+        raise HTTPException(status_code=401, detail="No autorizado")
+    if not es_privada(clave):
+        raise HTTPException(status_code=404, detail="No encontrada")
+    return JSONResponse(await obtener_conversacion_completa(clave), headers={"Cache-Control": "no-store"})
+
+
+HISTORIAL_HTML = """<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Historial con Maximus</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; background: #0f1419; color: #e7e9ea; height: 100vh; display: flex; flex-direction: column; }
+  header { background: #16202a; padding: 12px 18px; border-bottom: 1px solid #2a3540; }
+  header h1 { font-size: 16px; font-weight: 600; }
+  .layout { flex: 1; display: flex; overflow: hidden; }
+  .sidebar { width: 280px; border-right: 1px solid #2a3540; background: #121a22; overflow-y: auto; }
+  .btn-volver { display: none; background: #2a3540; color: #e7e9ea; border: none; border-radius: 8px; padding: 6px 11px; font-size: 16px; cursor: pointer; }
+  .conv { padding: 12px 16px; border-bottom: 1px solid #1e2832; cursor: pointer; }
+  .conv:hover { background: #182230; }
+  .conv.activa { background: #1d2b3a; }
+  .conv .canal { font-weight: 600; font-size: 14px; }
+  .conv .ult { font-size: 12px; color: #8b98a5; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chat { flex: 1; display: flex; flex-direction: column; }
+  .chat-header { padding: 12px 18px; border-bottom: 1px solid #2a3540; display: flex; align-items: center; gap: 10px; background: #16202a; display: none; }
+  .mensajes { flex: 1; overflow-y: auto; padding: 18px; display: flex; flex-direction: column; gap: 10px; }
+  .msg { max-width: 70%; padding: 9px 13px; border-radius: 14px; font-size: 14px; line-height: 1.4; white-space: pre-wrap; word-wrap: break-word; }
+  .msg.user { align-self: flex-start; background: #243340; border-bottom-left-radius: 4px; }
+  .msg.assistant { align-self: flex-end; background: #1d6f42; border-bottom-right-radius: 4px; }
+  .msg .hora { display: block; font-size: 10px; color: rgba(255,255,255,.5); margin-top: 4px; }
+  .vacio { color: #8b98a5; text-align: center; margin-top: 40px; font-size: 14px; }
+  @media (max-width: 700px) {
+    .sidebar { width: 100%; }
+    .chat { display: none; }
+    .layout.chat-abierto .sidebar { display: none; }
+    .layout.chat-abierto .chat { display: flex; }
+    .btn-volver { display: inline-block; }
+    .msg { max-width: 85%; }
+  }
+</style>
+</head>
+<body>
+<header><h1>🧠 Historial con Maximus — solo tú</h1></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="lista"></aside>
+  <div class="chat">
+    <div class="chat-header" id="chatHeader">
+      <button class="btn-volver" onclick="volver()">←</button>
+      <span id="chatCanal"></span>
+    </div>
+    <div class="mensajes" id="mensajes"><div class="vacio">Selecciona una conversación</div></div>
+  </div>
+</div>
+<script>
+const params = new URLSearchParams(location.search);
+const token = params.get('token') || '';
+let activa = null;
+
+function fmtHora(iso) {
+  if (!iso) return '';
+  const d = new Date(iso + 'Z');
+  return d.toLocaleString('es-CL', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+}
+function escapar(t) { const d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
+
+async function cargarLista() {
+  const r = await fetch('/maximus/historial/api?token=' + encodeURIComponent(token));
+  if (!r.ok) { document.getElementById('lista').innerHTML = '<div class="vacio">No autorizado</div>'; return; }
+  const convs = await r.json();
+  document.getElementById('lista').innerHTML = convs.map(c => `
+    <div class="conv ${c.clave===activa?'activa':''}" onclick="seleccionar('${c.clave.replace(/'/g,"\\\\'")}', '${c.canal}')">
+      <div class="canal">${c.canal}</div>
+      <div class="ult">${escapar((c.ultimo_mensaje||'').slice(0,60))}</div>
+    </div>`).join('') || '<div class="vacio">Sin conversaciones</div>';
+}
+
+async function seleccionar(clave, canal) {
+  activa = clave;
+  document.getElementById('layout').classList.add('chat-abierto');
+  document.getElementById('chatHeader').style.display = 'flex';
+  document.getElementById('chatCanal').textContent = canal;
+  const r = await fetch('/maximus/historial/api/' + encodeURIComponent(clave) + '?token=' + encodeURIComponent(token));
+  const msgs = await r.json();
+  document.getElementById('mensajes').innerHTML = msgs.map(m => `
+    <div class="msg ${m.role}">${escapar(m.content)}<span class="hora">${fmtHora(m.timestamp)}</span></div>
+  `).join('') || '<div class="vacio">Sin mensajes</div>';
+  cargarLista();
+}
+
+function volver() {
+  document.getElementById('layout').classList.remove('chat-abierto');
+}
+
+cargarLista();
+setInterval(cargarLista, 5000);
+</script>
+</body>
+</html>"""
 
 
 @app.post("/maximus/agente/nombre")

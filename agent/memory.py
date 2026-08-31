@@ -42,11 +42,18 @@ async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit
 # locales operando.
 def es_privada(telefono: str) -> bool:
     """¿Esta conversación es de Ricardo con Maximus, y no atención al cliente?"""
-    if (telefono or "").startswith("web:"):
+    clave = telefono or ""
+    if clave.startswith("web:"):
         return True                       # el cerebro visual
+    if clave.startswith("tg:"):
+        try:
+            from agent.telegram_maximus import es_owner
+            return es_owner(clave[3:])    # su Telegram — mismo canal 1:1 con Maximus
+        except Exception:
+            return True                   # ante la duda, "tg:" se trata como privado
     try:
         from agent.maximus import es_maximus
-        return es_maximus(telefono)       # su WhatsApp — misma regla, un solo lugar
+        return es_maximus(clave)          # su WhatsApp — misma regla, un solo lugar
     except Exception:
         return False                      # ante la duda, se trata como cliente
 
@@ -214,6 +221,50 @@ async def listar_conversaciones() -> list[dict]:
                 "ultimo_mensaje": ultimo.content if ultimo else "",
                 "ultimo_role": ultimo.role if ultimo else "",
                 "pausado": estados.get(fila.telefono, False),
+            })
+        return conversaciones
+
+
+async def listar_conversaciones_privadas() -> list[dict]:
+    """
+    Lo opuesto de listar_conversaciones(): SOLO las conversaciones de
+    Ricardo con Maximus (WhatsApp, Telegram, cerebro web). Para su propio
+    visor, separado del panel /admin que usan los cajeros.
+    """
+    async with async_session() as session:
+        resumen = (
+            select(
+                Mensaje.telefono,
+                func.count(Mensaje.id).label("total"),
+                func.max(Mensaje.timestamp).label("ultimo"),
+            )
+            .group_by(Mensaje.telefono)
+            .order_by(func.max(Mensaje.timestamp).desc())
+        )
+        filas = (await session.execute(resumen)).all()
+        filas = [f for f in filas if es_privada(f.telefono)]
+
+        conversaciones = []
+        for fila in filas:
+            ultimo = (await session.execute(
+                select(Mensaje)
+                .where(Mensaje.telefono == fila.telefono)
+                .order_by(Mensaje.timestamp.desc())
+                .limit(1)
+            )).scalars().first()
+            if fila.telefono.startswith("tg:"):
+                canal = "Telegram"
+            elif fila.telefono.startswith("web:"):
+                canal = "Cerebro (web)"
+            else:
+                canal = "WhatsApp"
+            conversaciones.append({
+                "clave": fila.telefono,
+                "canal": canal,
+                "total": fila.total,
+                "ultimo_timestamp": fila.ultimo.isoformat() if fila.ultimo else None,
+                "ultimo_mensaje": ultimo.content if ultimo else "",
+                "ultimo_role": ultimo.role if ultimo else "",
             })
         return conversaciones
 
