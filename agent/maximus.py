@@ -287,6 +287,42 @@ HERRAMIENTAS = [
         },
     },
     {
+        "name": "pedido_mesa_dimango",
+        "description": (
+            "Abre una mesa (si no está abierta) y manda un pedido a cocina/"
+            "bar, por local. Es la operación normal de un garzón — sin "
+            "clave de supervisor. Dos límites duros, no los fuerces: (1) "
+            "productos con opciones que elegir (sabor, tamaño, proteína) "
+            "NO se pueden agregar así — la función te lo va a decir, avísale "
+            "a Ricardo que ese ítem hay que agregarlo desde el POS; (2) no "
+            "identifica socio del Club DiMango. Búsqueda de mesa flexible "
+            "(no hace falta el formato exacto) y de producto por nombre "
+            "parcial — si el producto es ambiguo te lo dirá con las "
+            "opciones, no adivines cuál era."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "local": {"type": "string", "enum": ["playa", "mall"]},
+                "mesa_numero": {"type": "string", "description": "Número de mesa, tal como te lo diga Ricardo."},
+                "items": {
+                    "type": "array",
+                    "description": "Lista de productos a pedir.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "producto": {"type": "string", "description": "Nombre del producto, tal como aparece en la carta."},
+                            "cantidad": {"type": "integer", "description": "Por defecto 1."},
+                            "observacion": {"type": "string", "description": "Ej. 'sin cebolla'. Opcional."},
+                        },
+                        "required": ["producto"],
+                    },
+                },
+            },
+            "required": ["local", "mesa_numero", "items"],
+        },
+    },
+    {
         "name": "egreso_caja_dimango",
         "description": (
             "Registra un egreso de caja (retiro de efectivo, ej. pago a un "
@@ -626,6 +662,7 @@ DIMANGOTOGO_CHECKLIST_URL = "https://dimangotogo.base44.app/functions/maximusChe
 DIMANGOTOGO_EDITAR_MESA_URL = "https://dimangotogo.base44.app/functions/maximusEditarMesa"
 DIMANGOTOGO_STOCK_URL = "https://dimangotogo.base44.app/functions/maximusStock"
 DIMANGOTOGO_EGRESO_URL = "https://dimangotogo.base44.app/functions/maximusEgreso"
+DIMANGOTOGO_PEDIDO_URL = "https://dimangotogo.base44.app/functions/maximusPedido"
 DIMANGOTOGO_SECRET = os.getenv("DIMANGOTOGO_MAXIMUS_SECRET", "")
 
 DIMANGOWORKING_GASTOS_URL = "https://dimangoworking.base44.app/functions/maximusGastos"
@@ -894,6 +931,31 @@ async def ejecutar_herramienta(nombre: str, args: dict) -> str:
                 async with httpx.AsyncClient(timeout=20) as c:
                     r = await c.post(
                         DIMANGOTOGO_STOCK_URL,
+                        json=payload,
+                        headers={"x-maximus-secret": DIMANGOTOGO_SECRET},
+                    )
+            except httpx.RequestError as e:
+                return f"No pude conectar con DiMangoToGo: {e}"
+            if r.status_code != 200:
+                return f"DiMangoToGo respondió {r.status_code}: {r.text[:300]}"
+            d = r.json()
+            if not d.get("ok"):
+                return f"No se pudo: {d.get('error', 'error desconocido')}"
+            return d.get("mensaje", "Listo.")
+
+        if nombre == "pedido_mesa_dimango":
+            if not DIMANGOTOGO_SECRET:
+                return ("No puedo escribir en DiMangoToGo: falta DIMANGOTOGO_MAXIMUS_SECRET "
+                        "en el .env del servidor. Avísale a Ricardo.")
+            items_pedido = args.get("items") or []
+            if not items_pedido:
+                return "Necesito al menos un producto para el pedido."
+            import httpx
+            payload = {"local": args.get("local"), "mesa_numero": args.get("mesa_numero"), "items": items_pedido}
+            try:
+                async with httpx.AsyncClient(timeout=25) as c:
+                    r = await c.post(
+                        DIMANGOTOGO_PEDIDO_URL,
                         json=payload,
                         headers={"x-maximus-secret": DIMANGOTOGO_SECRET},
                     )
