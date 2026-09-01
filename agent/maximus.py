@@ -233,27 +233,34 @@ HERRAMIENTAS = [
         "name": "editar_mesa_dimango",
         "description": (
             "Escribe sobre una mesa real en DiMangoToGo: marcarla como "
-            "CORTESÍA (condona el cobro, cierra la mesa, la libera) o "
+            "CORTESÍA (condona el cobro, cierra la mesa, la libera), "
             "QUITAR una cantidad de un ítem de su comanda (por error de "
-            "digitación, ej. cobraron 2 y era 1). Esto TOCA DINERO REAL y "
-            "el turno de caja del día — exige SIEMPRE la clave de "
-            "supervisor de Modo Jefe, igual que en el panel de Caja. Si "
-            "Ricardo no te dio la clave todavía, pídesela antes de llamar "
-            "esta herramienta — nunca la inventes ni la reutilices de un "
-            "turno anterior. Para cortesía, el motivo es obligatorio."
+            "digitación, ej. cobraron 2 y era 1), o aplicar un DESCUENTO "
+            "parcial (la mesa sigue abierta, se reduce % lo que debe). "
+            "Esto TOCA DINERO REAL. Cortesía y quitar_item exigen SIEMPRE "
+            "la clave de supervisor de Modo Jefe, igual que en el panel de "
+            "Caja — si Ricardo no te la dio todavía, pídesela antes de "
+            "llamar esta herramienta, nunca la inventes ni la reutilices "
+            "de un turno anterior. Descuento NO exige clave (igual que el "
+            "botón manual del panel), pero el motivo siempre es "
+            "obligatorio. La búsqueda de mesa es flexible (no hace falta "
+            "el formato exacto); si no encuentra ninguna, te dirá qué "
+            "mesas están realmente abiertas en ese local — usa esa lista "
+            "en vez de seguir adivinando el número."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "local": {"type": "string", "enum": ["playa", "mall"]},
-                "mesa_numero": {"type": "string", "description": "Número de mesa, tal como en la app."},
-                "accion": {"type": "string", "enum": ["cortesia", "quitar_item"]},
-                "clave": {"type": "string", "description": "Clave de supervisor/Modo Jefe que Ricardo te dio para ESTA acción."},
-                "motivo": {"type": "string", "description": "Obligatorio si accion es 'cortesia'."},
+                "mesa_numero": {"type": "string", "description": "Número de mesa, tal como te lo diga Ricardo."},
+                "accion": {"type": "string", "enum": ["cortesia", "quitar_item", "descuento"]},
+                "clave": {"type": "string", "description": "Obligatoria para 'cortesia'/'quitar_item'. No aplica a 'descuento'."},
+                "motivo": {"type": "string", "description": "Obligatorio para 'cortesia' y 'descuento'."},
                 "nombre_item": {"type": "string", "description": "Obligatorio si accion es 'quitar_item' — nombre del producto tal como aparece en la venta."},
                 "cantidad": {"type": "integer", "description": "Solo para 'quitar_item'. Unidades a quitar, por defecto 1."},
+                "porcentaje": {"type": "number", "description": "Obligatorio si accion es 'descuento'. 1-100."},
             },
-            "required": ["local", "mesa_numero", "accion", "clave"],
+            "required": ["local", "mesa_numero", "accion"],
         },
     },
     {
@@ -846,15 +853,18 @@ async def ejecutar_herramienta(nombre: str, args: dict) -> str:
             if not DIMANGOTOGO_SECRET:
                 return ("No puedo escribir en DiMangoToGo: falta DIMANGOTOGO_MAXIMUS_SECRET "
                         "en el .env del servidor. Avísale a Ricardo.")
-            if not (args.get("clave") or "").strip():
+            accion_mesa = args.get("accion")
+            if accion_mesa in ("cortesia", "quitar_item") and not (args.get("clave") or "").strip():
                 return "Necesito la clave de supervisor/Modo Jefe para hacer esto. Pídesela a Ricardo."
-            if args.get("accion") == "cortesia" and not (args.get("motivo") or "").strip():
-                return "El motivo de la cortesía es obligatorio."
-            if args.get("accion") == "quitar_item" and not (args.get("nombre_item") or "").strip():
+            if accion_mesa in ("cortesia", "descuento") and not (args.get("motivo") or "").strip():
+                return f"El motivo de {'la cortesía' if accion_mesa == 'cortesia' else 'el descuento'} es obligatorio."
+            if accion_mesa == "quitar_item" and not (args.get("nombre_item") or "").strip():
                 return "Necesito el nombre exacto del producto a quitar."
+            if accion_mesa == "descuento" and not args.get("porcentaje"):
+                return "Necesito el porcentaje de descuento."
             import httpx
             payload = {k: args[k] for k in
-                       ("local", "mesa_numero", "accion", "clave", "motivo", "nombre_item", "cantidad")
+                       ("local", "mesa_numero", "accion", "clave", "motivo", "nombre_item", "cantidad", "porcentaje")
                        if args.get(k) is not None}
             try:
                 async with httpx.AsyncClient(timeout=20) as c:
