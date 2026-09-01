@@ -39,6 +39,7 @@ from agent import checklist_operativo as checklist
 from agent import telegram_checklist as tg_checklist
 from agent import porton
 from agent import riego
+from agent.voz_control import procesar_mensaje_voz
 
 load_dotenv()
 
@@ -222,6 +223,15 @@ async def webhook_handler(request: Request):
             # configurado, es_maximus() siempre es False y este bloque no
             # existe para nadie.
             if es_maximus(msg.telefono):
+                # "voz clonada on/off" -- determinístico, antes de gastar
+                # un turno de Claude en algo que no necesita interpretación.
+                respuesta_voz = await procesar_mensaje_voz(msg.texto)
+                if respuesta_voz is not None:
+                    await guardar_mensaje(msg.telefono, "user", msg.texto)
+                    await guardar_mensaje(msg.telefono, "assistant", respuesta_voz)
+                    await canal.enviar_mensaje(msg.telefono, respuesta_voz)
+                    continue
+
                 historial = await obtener_historial(msg.telefono)
                 respuesta = await responder_maximus(
                     msg.texto, historial,
@@ -852,6 +862,17 @@ async def telegram_webhook(request: Request):
     await eventos.publicar("escuchando", mensaje=texto[:200], canal="telegram")
 
     clave = f"tg:{chat_id}"
+
+    # "voz clonada on/off" -- determinístico, antes de gastar un turno de
+    # Claude en algo que no necesita interpretación.
+    respuesta_voz = await procesar_mensaje_voz(texto)
+    if respuesta_voz is not None:
+        await guardar_mensaje(clave, "user", texto)
+        await guardar_mensaje(clave, "assistant", respuesta_voz)
+        await tg.enviar_mensaje(chat_id, respuesta_voz)
+        logger.info(f"[MAXIMUS/TG] {chat_id}: {texto[:80]}")
+        return {"status": "ok"}
+
     historial = await obtener_historial(clave)
     respuesta = await responder_maximus(texto, historial)
     await guardar_mensaje(clave, "user", texto)

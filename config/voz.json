@@ -1,0 +1,5 @@
+{
+  "_comentario": "Interruptor de la voz clonada de ElevenLabs. Se cambia mandandole a Maximus 'voz clonada on' o 'voz clonada off' -- no hace falta tocar el servidor. Con 'off', siempre usa la voz gratis (edge-tts), aunque la clave de ElevenLabs este configurada.",
+  "elevenlabs_activo": true,
+  "limite_caracteres": 500
+}

@@ -32,8 +32,10 @@ ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "")
 ELEVENLABS_MODEL = os.getenv("ELEVENLABS_MODEL", "eleven_multilingual_v2")
 
 # Por encima de esto no se sintetiza: una respuesta larga en audio es peor que
-# leerla, y además cuesta. Maximus responde corto por diseño.
-LIMITE_CARACTERES = int(os.getenv("MAXIMUS_VOZ_MAX_CHARS", "1200"))
+# leerla, y además cuesta. Maximus responde corto por diseño. El valor real
+# se lee de config/voz.json (controlable con "voz clonada on/off" sin tocar
+# el servidor) -- esta constante es solo el respaldo si ese archivo falla.
+LIMITE_CARACTERES_DEFECTO = int(os.getenv("MAXIMUS_VOZ_MAX_CHARS", "1200"))
 
 
 # Palabras que el sintetizador lee en español pero se pronuncian de otra forma.
@@ -170,18 +172,26 @@ async def sintetizar(texto: str) -> bytes | None:
     if not texto:
         return None
 
+    from agent.voz_control import cargar_config
+    cfg = cargar_config()
+    limite = cfg.get("limite_caracteres", LIMITE_CARACTERES_DEFECTO)
+    elevenlabs_activo = cfg.get("elevenlabs_activo", True)
+
     limpio = _limpiar_para_voz(texto)
-    if len(limpio) > LIMITE_CARACTERES:
-        logger.info(f"[VOZ] Texto de {len(limpio)} caracteres, sobre el límite: se envía solo texto")
+    if len(limpio) > limite:
+        logger.info(f"[VOZ] Texto de {len(limpio)} caracteres, sobre el límite ({limite}): se envía solo texto")
         return None
 
-    # ElevenLabs manda si está configurado; si no, el gratuito
-    if ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID:
+    # ElevenLabs manda si está configurado Y activado (config/voz.json);
+    # si no, el gratuito.
+    if elevenlabs_activo and ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID:
         audio = await _sintetizar_elevenlabs(limpio)
         if audio:
             logger.info(f"[VOZ] ElevenLabs — {len(audio)} bytes")
             return audio
         logger.warning("[VOZ] ElevenLabs falló, cayendo a edge-tts")
+    elif not elevenlabs_activo:
+        logger.info("[VOZ] ElevenLabs desactivado por config/voz.json, usando edge-tts")
 
     audio = await _sintetizar_edge(limpio)
     if audio:
