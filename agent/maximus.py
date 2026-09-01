@@ -1319,16 +1319,21 @@ def construir_prompt_atomico(mensaje: str) -> tuple[str, str] | None:
     try:
         fija, variable, ids = c.contexto(mensaje)
         logger.info(f"[MAXIMUS] {len(ids)} notas recuperadas: {', '.join(ids[:8])}")
-        return _encabezado() + "\n\n" + fija, variable
+        # contexto_fecha() va en el bloque VARIABLE, no en el cacheado -- cambia
+        # cada minuto, y si viviera en el bloque fijo el caché nunca acertaría
+        # (ver H-028). El bloque fijo debe ser byte-idéntico entre llamadas.
+        return _encabezado() + "\n\n" + fija, contexto_fecha() + "\n\n" + variable
     except Exception as e:
         logger.error(f"[MAXIMUS] Falló la recuperación, uso los archivos completos: {e}")
         return None
 
 
 def _encabezado() -> str:
+    # OJO: nada de contenido que cambie entre llamadas va acá -- este texto
+    # se manda con cache_control (ephemeral). Debe ser byte-idéntico de un
+    # mensaje al siguiente para que el caché acierte. La fecha/hora va en
+    # el bloque variable (ver H-028), no acá.
     return f"""Eres **Maximus**, el estratega y operador de negocio de Ricardo Vinet (DiMango, Arica, Chile).
-
-{contexto_fecha()}
 
 Estás respondiendo por **WhatsApp**, no por consola. Eso cambia el formato, no el criterio:
 - Respuestas cortas. Un mensaje de WhatsApp, no un informe. Si necesitas más de 8 líneas, es porque el tema lo merece de verdad.
@@ -1437,8 +1442,12 @@ async def responder(
             "text": base,
             "cache_control": {"type": "ephemeral"},
         }]
+        # La fecha/hora SIEMPRE en el bloque variable, nunca en el cacheado
+        # (ver H-028) -- por eso va aparte, no dentro de construir_system_prompt().
+        variable_texto = contexto_fecha()
         if notas_ctx:
-            system_bloques.append({"type": "text", "text": notas_ctx})
+            variable_texto += "\n\n" + notas_ctx
+        system_bloques.append({"type": "text", "text": variable_texto})
 
     for modelo in (MODELO, MODELO_FALLBACK):
         try:
@@ -1453,9 +1462,15 @@ async def responder(
                     tools=HERRAMIENTAS + [WEB_SEARCH_TOOL],
                     messages=mensajes,
                 )
+                # cache_read_input_tokens > 0 confirma que el caché acertó (esa
+                # parte cuesta ~10% de un token normal). cache_creation la
+                # primera vez que se escribe; después debe ser puro cache_read.
+                u = respuesta.usage
+                cache_leido = getattr(u, "cache_read_input_tokens", 0) or 0
+                cache_creado = getattr(u, "cache_creation_input_tokens", 0) or 0
                 logger.info(
-                    f"[MAXIMUS] {modelo} — {respuesta.usage.input_tokens} in / "
-                    f"{respuesta.usage.output_tokens} out — {respuesta.stop_reason}"
+                    f"[MAXIMUS] {modelo} — {u.input_tokens} in / {u.output_tokens} out "
+                    f"(caché: {cache_leido} leídos, {cache_creado} creados) — {respuesta.stop_reason}"
                 )
 
                 if respuesta.stop_reason != "tool_use":
