@@ -322,6 +322,17 @@ async def maximus_chat(request: Request):
     await eventos.publicar("escuchando", mensaje=mensaje[:200], canal="web")
 
     sesion = f"web:{datos.get('sesion', 'cerebro')}"
+
+    # "voz clonada on/off" -- determinístico, antes de gastar un turno de
+    # Claude en algo que no necesita interpretación (mismo criterio que
+    # WhatsApp y Telegram).
+    respuesta_voz = await procesar_mensaje_voz(mensaje)
+    if respuesta_voz is not None:
+        await guardar_mensaje(sesion, "user", mensaje)
+        await guardar_mensaje(sesion, "assistant", respuesta_voz)
+        logger.info(f"[MAXIMUS/WEB] {mensaje[:70]}")
+        return {"respuesta": respuesta_voz, "notas": [], "audio": ""}
+
     historial = await obtener_historial(sesion)
 
     notas = []
