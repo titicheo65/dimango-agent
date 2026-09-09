@@ -28,6 +28,20 @@ class ProveedorInstagram(ProveedorWhatsApp):
         self.verify_token = os.getenv("META_VERIFY_TOKEN", "agentkit-verify")
         self.api_version = "v21.0"
 
+        # Instagram tiene DOS caminos y cada uno responde por un host distinto.
+        # Elegir mal el host hace que el mensaje del cliente SÍ llegue y la
+        # respuesta muera con un error de autenticación — el peor de los fallos,
+        # porque el cliente queda esperando y en el log solo se ve un 400.
+        #
+        #  - Por Página (Messenger -> Configuración de Instagram): token de la
+        #    Página, se responde por graph.facebook.com igual que Messenger.
+        #    Usa los mismos permisos que ya están aprobados para Messenger.
+        #  - Por "Instagram Login": token de Instagram y graph.instagram.com,
+        #    pero exige revisión de Meta para atender clientes reales.
+        via_pagina = os.getenv("IG_VIA_PAGINA", "1").strip().lower()
+        self.usa_pagina = via_pagina not in ("0", "false", "no")
+        self.api_host = "graph.facebook.com" if self.usa_pagina else "graph.instagram.com"
+
     async def validar_webhook(self, request: Request) -> dict | int | None:
         """Verificación GET del webhook (Meta usa hub.verify_token)."""
         params = request.query_params
@@ -67,11 +81,11 @@ class ProveedorInstagram(ProveedorWhatsApp):
         return mensajes
 
     async def enviar_mensaje(self, telefono: str, mensaje: str) -> bool:
-        """Envía un DM de Instagram via la API de Meta (graph.instagram.com)."""
+        """Envía un DM de Instagram via la API de Meta (ver self.api_host)."""
         if not self.access_token:
             logger.warning("IG_ACCESS_TOKEN no configurado")
             return False
-        url = f"https://graph.instagram.com/{self.api_version}/me/messages"
+        url = f"https://{self.api_host}/{self.api_version}/me/messages"
         headers = {
             "Authorization": f"Bearer {self.access_token}",
             "Content-Type": "application/json",

@@ -103,7 +103,10 @@ async def lifespan(app: FastAPI):
     logger.info(f"Servidor AgentKit corriendo en puerto {PORT}")
     logger.info(f"Proveedor de WhatsApp: {proveedor.__class__.__name__}")
     if proveedor_instagram is not None:
-        logger.info(f"Proveedor de Instagram: {proveedor_instagram.__class__.__name__}")
+        logger.info(
+            f"Proveedor de Instagram: {proveedor_instagram.__class__.__name__} "
+            f"(responde por {proveedor_instagram.api_host})"
+        )
     if proveedor_messenger is not None:
         logger.info(f"Proveedor de Messenger: {proveedor_messenger.__class__.__name__}")
     # Loop en segundo plano que avisa cuando alguien se pasa de su colación
