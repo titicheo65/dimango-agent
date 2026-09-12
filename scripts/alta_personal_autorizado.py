@@ -18,11 +18,13 @@ import asyncio
 from agent.personal_autorizado import inicializar_personal, upsert_persona, listar_texto
 
 # telefono, nombre, clave, local
+# "ambos" = trabaja en los dos locales y tiene que decir cual en cada orden
+# (EGRESO MALL 12000 ... / EGRESO PLAYA 12000 ...).
 PERSONAL = [
-    ("+56977962181", "Carlos",   "3592", "playa"),
-    ("+56974596595", "Alejandra", "4592", "playa"),
-    ("+56967210490", "Angelica", "5592", "playa"),
-    ("+56997716349", "Noemi",    "6592", "playa"),
+    ("+56977962181", "Carlos",    "3592", "playa"),
+    ("+56974596595", "Alejandra", "4592", "mall"),
+    ("+56967210490", "Angelica",  "5592", "ambos"),
+    ("+56997716349", "Noemi",     "6592", "playa"),
 ]
 
 

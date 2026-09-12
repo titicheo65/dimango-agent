@@ -197,13 +197,17 @@ AYUDA = (
     "   EGRESO 12000 pan clave 1234\n\n"
     "2) Eliminar una comanda\n"
     "   ELIMINAR 3F2A9C clave 1234\n\n"
-    "(el código de la comanda son los 6 caracteres que aparecen en el panel)"
+    "(el código de la comanda son los 6 caracteres que aparecen en el panel)\n"
+    "Si trabajas en los dos locales, dilo: EGRESO MALL 12000 pan clave 1234"
 )
 
+# El local va opcional despues del verbo (EGRESO MALL 12000 ...). Es obligatorio
+# para quien trabaja en los dos: sin eso la plata saldria de la caja equivocada
+# y descuadraria las dos.
 _RE_EGRESO = re.compile(
-    r"^\s*egreso\s+\$?\s*([\d.\s]+)\s+(.+?)\s+clave\s*:?\s*(\w+)\s*$", re.IGNORECASE)
+    r"^\s*egreso\s+(?:(playa|mall)\s+)?\$?\s*([\d.\s]+)\s+(.+?)\s+clave\s*:?\s*(\w+)\s*$", re.IGNORECASE)
 _RE_ELIMINAR = re.compile(
-    r"^\s*eliminar\s+#?\s*([A-Za-z0-9]{4,12})\s+clave\s*:?\s*(\w+)\s*$", re.IGNORECASE)
+    r"^\s*eliminar\s+(?:(playa|mall)\s+)?#?\s*([A-Za-z0-9]{4,12})\s+clave\s*:?\s*(\w+)\s*$", re.IGNORECASE)
 
 
 def parsear(texto: str) -> dict | None:
@@ -215,16 +219,18 @@ def parsear(texto: str) -> dict | None:
 
     m = _RE_EGRESO.match(t)
     if m:
-        monto_txt = re.sub(r"[.\s]", "", m.group(1))
+        monto_txt = re.sub(r"[.\s]", "", m.group(2))
         if not monto_txt.isdigit():
             return {"accion": "error", "mensaje": "No entendí el monto. Ejemplo: EGRESO 12000 pan clave 1234"}
         return {"accion": "egreso", "monto": int(monto_txt),
-                "motivo": m.group(2).strip()[:120], "clave": m.group(3).strip()}
+                "local": (m.group(1) or "").lower(),
+                "motivo": m.group(3).strip()[:120], "clave": m.group(4).strip()}
 
     m = _RE_ELIMINAR.match(t)
     if m:
-        return {"accion": "eliminar", "codigo": m.group(1).strip().upper(),
-                "clave": m.group(2).strip()}
+        return {"accion": "eliminar", "codigo": m.group(2).strip().upper(),
+                "local": (m.group(1) or "").lower(),
+                "clave": m.group(3).strip()}
 
     primera = t.split()[0].lower().strip(":,.")
     if primera in ("egreso", "eliminar", "ayuda", "help", "menu", "menú"):
@@ -249,6 +255,13 @@ async def autorizar(persona: PersonalAutorizado, orden: dict) -> tuple[bool, str
         return False, f"Clave incorrecta. Te quedan {quedan} intento(s) antes de que se bloquee."
 
     await _limpiar_intentos(persona.telefono)
+
+    # Quien trabaja en los dos locales tiene que decir cual. No se adivina:
+    # un egreso en la caja equivocada descuadra las dos.
+    if persona.local == "ambos" and not orden.get("local"):
+        verbo = "EGRESO" if orden["accion"] == "egreso" else "ELIMINAR"
+        return False, (f"Trabajas en los dos locales, así que dime cuál. "
+                       f"Escribe {verbo} MALL ... o {verbo} PLAYA ...")
 
     if orden["accion"] == "egreso":
         monto = orden["monto"]
@@ -339,7 +352,7 @@ async def procesar(telefono: str, texto: str) -> str | None:
 
     if orden["accion"] == "egreso":
         exito, mensaje = await _llamar_togo(DIMANGOTOGO_EGRESO_URL, {
-            "local": persona.local,
+            "local": orden.get("local") or persona.local,
             "monto": orden["monto"],
             "motivo": orden["motivo"],
             "autorizado_por": persona.nombre,
@@ -363,7 +376,7 @@ async def procesar(telefono: str, texto: str) -> str | None:
     if orden["accion"] == "eliminar":
         exito, mensaje = await _llamar_togo(DIMANGOTOGO_ELIMINAR_URL, {
             "codigo": orden["codigo"],
-            "local": persona.local,
+            "local": orden.get("local") or persona.local,
             "autorizado_por": persona.nombre,
             "telefono": persona.telefono,
         })
