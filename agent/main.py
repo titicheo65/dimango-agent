@@ -99,6 +99,8 @@ async def lifespan(app: FastAPI):
     await inicializar_delegaciones()
     from agent.equipo import inicializar_equipo
     await inicializar_equipo()
+    from agent.personal_autorizado import inicializar_personal
+    await inicializar_personal()
     logger.info("Base de datos inicializada")
     logger.info(f"Servidor AgentKit corriendo en puerto {PORT}")
     logger.info(f"Proveedor de WhatsApp: {proveedor.__class__.__name__}")
@@ -226,6 +228,18 @@ async def webhook_handler(request: Request):
             # configurado, es_maximus() siempre es False y este bloque no
             # existe para nadie.
             if es_maximus(msg.telefono):
+                # Administración del personal autorizado ("clave de Noemi 7821",
+                # "autorizados", "bloquear a Carlos"): determinístico y antes de
+                # Claude, porque cambia quién puede sacar plata de la caja y eso
+                # no se decide interpretando una frase.
+                from agent.personal_autorizado import procesar_admin
+                respuesta_admin = await procesar_admin(msg.texto)
+                if respuesta_admin is not None:
+                    await guardar_mensaje(msg.telefono, "user", msg.texto)
+                    await guardar_mensaje(msg.telefono, "assistant", respuesta_admin)
+                    await canal.enviar_mensaje(msg.telefono, respuesta_admin)
+                    continue
+
                 # "voz clonada on/off" -- determinístico, antes de gastar
                 # un turno de Claude en algo que no necesita interpretación.
                 respuesta_voz = await procesar_mensaje_voz(msg.texto)
@@ -252,6 +266,18 @@ async def webhook_handler(request: Request):
                         await canal.enviar_audio(msg.telefono, audio)
 
                 logger.info(f"[MAXIMUS] {msg.telefono}: {msg.texto[:80]}")
+                continue
+
+            # ¿Es personal de confianza pidiendo un egreso o eliminar una
+            # comanda? Va ANTES de colación porque estas mismas personas
+            # marcan colación por acá, y si no, colación se come el mensaje.
+            # Devuelve None si el número no está autorizado o si el mensaje no
+            # es una de las dos órdenes: en ese caso sigue su camino normal.
+            from agent.personal_autorizado import procesar as procesar_personal
+            respuesta_personal = await procesar_personal(msg.telefono, msg.texto)
+            if respuesta_personal is not None:
+                await canal.enviar_mensaje(msg.telefono, respuesta_personal)
+                logger.info(f"[PERSONAL] {msg.telefono}: {msg.texto[:80]}")
                 continue
 
             # ¿Es un empleado registrado? → control de colación, no atención al cliente
