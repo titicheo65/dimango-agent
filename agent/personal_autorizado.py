@@ -192,22 +192,23 @@ async def _limpiar_intentos(telefono: str) -> None:
 # -------------------------------------------------------------------- parser
 
 AYUDA = (
-    "Puedo hacerte dos cosas. Escríbelas tal cual, con tu clave al final:\n\n"
+    "Puedo hacerte dos cosas. Escríbelas tal cual, con el local y tu clave:\n\n"
     "1) Registrar un egreso de caja\n"
-    "   EGRESO 12000 pan clave 1234\n\n"
+    "   EGRESO LOCAL PLAYA 12000 pan clave 1234\n"
+    "   EGRESO LOCAL MALL 12000 pan clave 1234\n\n"
     "2) Eliminar una comanda\n"
-    "   ELIMINAR 3F2A9C clave 1234\n\n"
-    "(el código de la comanda son los 6 caracteres que aparecen en el panel)\n"
-    "Si trabajas en los dos locales, dilo: EGRESO MALL 12000 pan clave 1234"
+    "   ELIMINAR LOCAL PLAYA 3F2A9C clave 1234\n\n"
+    "El local va siempre. El código de la comanda son los 6 caracteres que\n"
+    "aparecen en el panel."
 )
 
 # El local va opcional despues del verbo (EGRESO MALL 12000 ...). Es obligatorio
 # para quien trabaja en los dos: sin eso la plata saldria de la caja equivocada
 # y descuadraria las dos.
 _RE_EGRESO = re.compile(
-    r"^\s*egreso\s+(?:(playa|mall)\s+)?\$?\s*([\d.\s]+)\s+(.+?)\s+clave\s*:?\s*(\w+)\s*$", re.IGNORECASE)
+    r"^\s*egreso\s+(?:local\s+)?(?:(playa|mall)\s+)?\$?\s*([\d.\s]+)\s+(.+?)\s+clave\s*:?\s*(\w+)\s*$", re.IGNORECASE)
 _RE_ELIMINAR = re.compile(
-    r"^\s*eliminar\s+(?:(playa|mall)\s+)?#?\s*([A-Za-z0-9]{4,12})\s+clave\s*:?\s*(\w+)\s*$", re.IGNORECASE)
+    r"^\s*eliminar\s+(?:local\s+)?(?:(playa|mall)\s+)?#?\s*([A-Za-z0-9]{4,12})\s+clave\s*:?\s*(\w+)\s*$", re.IGNORECASE)
 
 
 def parsear(texto: str) -> dict | None:
@@ -256,12 +257,21 @@ async def autorizar(persona: PersonalAutorizado, orden: dict) -> tuple[bool, str
 
     await _limpiar_intentos(persona.telefono)
 
-    # Quien trabaja en los dos locales tiene que decir cual. No se adivina:
-    # un egreso en la caja equivocada descuadra las dos.
-    if persona.local == "ambos" and not orden.get("local"):
-        verbo = "EGRESO" if orden["accion"] == "egreso" else "ELIMINAR"
-        return False, (f"Trabajas en los dos locales, así que dime cuál. "
-                       f"Escribe {verbo} MALL ... o {verbo} PLAYA ...")
+    # El local es OBLIGATORIO siempre, decision de Ricardo: nunca se asume.
+    # Un egreso en la caja equivocada descuadra las dos, y con dos locales el
+    # que escribe no siempre esta donde el sistema cree que esta.
+    verbo = "EGRESO" if orden["accion"] == "egreso" else "ELIMINAR"
+    resto = ("12000 pan" if orden["accion"] == "egreso" else "3F2A9C")
+    if not orden.get("local"):
+        return False, ("Falta el local. Escríbelo siempre:\n"
+                       f"  {verbo} LOCAL PLAYA {resto} clave ****\n"
+                       f"  {verbo} LOCAL MALL {resto} clave ****")
+
+    # Y tiene que ser el suyo. Si alguien cambia de local, lo cambia Ricardo
+    # ("quitar a X" y alta de nuevo), no se decide desde el mensaje.
+    if persona.local != "ambos" and orden["local"] != persona.local:
+        return False, (f"Estás registrado en {persona.local}, no en {orden['local']}. "
+                       "Si cambiaste de local, avísale a Ricardo.")
 
     if orden["accion"] == "egreso":
         monto = orden["monto"]
