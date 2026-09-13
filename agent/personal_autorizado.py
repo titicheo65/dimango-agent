@@ -196,10 +196,10 @@ AYUDA = (
     "1) Registrar un egreso de caja\n"
     "   EGRESO LOCAL PLAYA 12000 pan clave 1234\n"
     "   EGRESO LOCAL MALL 12000 pan clave 1234\n\n"
-    "2) Eliminar una comanda\n"
-    "   ELIMINAR LOCAL PLAYA 3F2A9C clave 1234\n\n"
-    "El local va siempre. El código de la comanda son los 6 caracteres que\n"
-    "aparecen en el panel."
+    "2) Quitar un producto de una mesa\n"
+    "   ELIMINAR LOCAL PLAYA MESA 10 affogato MOTIVO cambio por otro CLAVE 1234\n"
+    "   (para más de uno: ... MESA 10 2 affogato MOTIVO ...)\n\n"
+    "El local y el motivo van siempre."
 )
 
 # El local va opcional despues del verbo (EGRESO MALL 12000 ...). Es obligatorio
@@ -207,8 +207,14 @@ AYUDA = (
 # y descuadraria las dos.
 _RE_EGRESO = re.compile(
     r"^\s*egreso\s+(?:local\s+)?(?:(playa|mall)\s+)?\$?\s*([\d.\s]+)\s+(.+?)\s+clave\s*:?\s*(\w+)\s*$", re.IGNORECASE)
+# ELIMINAR es por ITEM, no por comanda: lo que el personal necesita de verdad
+# es sacar un affogato de la mesa 10 porque el cliente lo cambio, no borrar la
+# comanda entera. Dandoles solo "borrar comanda" borrarian comandas completas
+# para sacar un producto, que es peor en todo sentido (D-014).
+# El motivo es obligatorio: es lo que hace auditable la accion.
 _RE_ELIMINAR = re.compile(
-    r"^\s*eliminar\s+(?:local\s+)?(?:(playa|mall)\s+)?#?\s*([A-Za-z0-9]{4,12})\s+clave\s*:?\s*(\w+)\s*$", re.IGNORECASE)
+    r"^\s*eliminar\s+(?:local\s+)?(playa|mall)\s+mesa\s+(\S+)\s+(?:(\d+)\s+)?(.+?)\s+motivo\s*:?\s*(.+?)\s+clave\s*:?\s*(\w+)\s*$",
+    re.IGNORECASE)
 
 
 def parsear(texto: str) -> dict | None:
@@ -229,9 +235,13 @@ def parsear(texto: str) -> dict | None:
 
     m = _RE_ELIMINAR.match(t)
     if m:
-        return {"accion": "eliminar", "codigo": m.group(2).strip().upper(),
+        return {"accion": "eliminar",
                 "local": (m.group(1) or "").lower(),
-                "clave": m.group(3).strip()}
+                "mesa": m.group(2).strip(),
+                "cantidad": int(m.group(3)) if m.group(3) else 1,
+                "producto": m.group(4).strip()[:80],
+                "motivo": m.group(5).strip()[:120],
+                "clave": m.group(6).strip()}
 
     primera = t.split()[0].lower().strip(":,.")
     if primera in ("egreso", "eliminar", "ayuda", "help", "menu", "menú"):
@@ -293,7 +303,7 @@ async def autorizar(persona: PersonalAutorizado, orden: dict) -> tuple[bool, str
 # -------------------------------------------------------------------- ejecución
 
 DIMANGOTOGO_EGRESO_URL = "https://dimangotogo.base44.app/functions/maximusEgreso"
-DIMANGOTOGO_ELIMINAR_URL = "https://dimangotogo.base44.app/functions/maximusEliminarOrden"
+DIMANGOTOGO_EDITAR_MESA_URL = "https://dimangotogo.base44.app/functions/maximusEditarMesa"
 
 
 async def _avisar_a_ricardo(texto: str) -> None:
@@ -384,17 +394,29 @@ async def procesar(telefono: str, texto: str) -> str | None:
         return f"No se pudo registrar el egreso: {mensaje}"
 
     if orden["accion"] == "eliminar":
-        exito, mensaje = await _llamar_togo(DIMANGOTOGO_ELIMINAR_URL, {
-            "codigo": orden["codigo"],
-            "local": orden.get("local") or persona.local,
+        exito, mensaje = await _llamar_togo(DIMANGOTOGO_EDITAR_MESA_URL, {
+            "accion": "quitar_item",
+            "local": orden["local"],
+            "mesa_numero": orden["mesa"],
+            "nombre_item": orden["producto"],
+            "cantidad": orden["cantidad"],
             "autorizado_por": persona.nombre,
-            "telefono": persona.telefono,
         })
+        detalle = (f"mesa {orden['mesa']} {orden['local']}: {orden['cantidad']}x "
+                   f"{orden['producto']} — {orden['motivo']}")
         await registrar(persona.telefono, persona.nombre, "eliminar",
-                        f"comanda {orden['codigo']} — {mensaje[:150]}", ok=exito)
-        # El aviso a Ricardo de la eliminación lo manda maximusEliminarOrden con
-        # el detalle completo de la comanda; acá no lo duplicamos.
-        return mensaje if exito else f"No se pudo eliminar: {mensaje}"
+                        f"{detalle} — {mensaje[:120]}", ok=exito)
+        if exito:
+            # El motivo solo lo conoce el agente: la funcion de la app no lo
+            # recibe, asi que el aviso con motivo va desde acá.
+            await _avisar_a_ricardo(
+                "🗑️ ÍTEM ELIMINADO DE UNA MESA\n"
+                f"👤 {persona.nombre}\n"
+                f"🍽️ Mesa {orden['mesa']} · {orden['local']}\n"
+                f"❌ {orden['cantidad']}x {orden['producto']}\n"
+                f"📝 Motivo: {orden['motivo']}")
+            return mensaje
+        return f"No se pudo eliminar: {mensaje}"
 
     return None
 
