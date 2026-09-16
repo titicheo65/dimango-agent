@@ -32,7 +32,11 @@ var SHARE = '\\\\localhost\\PRECUENTA';   // USB003 compartida como "PRECUENTA"
 
 // ===== COLA Base44 (PULL) =====
 var BASE44_APP_ID = '69b4f4b6d8a5cb6ca598d9e2';
-var BASE44_API_KEY = 'cf05dc9ec6d149c58382b3c341a6d0bc';
+// La api-key NO va escrita aca (ver H-019, H-035 y H-049 en la memoria).
+// Se lee de la variable de entorno BASE44_API_KEY. Si falta, el servidor NO
+// arranca: es preferible no imprimir a quedar corriendo con una llave por defecto.
+var BASE44_API_KEY = process.env.BASE44_API_KEY || '';
+if (!BASE44_API_KEY) { console.error('Falta la variable de entorno BASE44_API_KEY'); process.exit(1); }
 var LOCAL_ESTE_SERVER = 'mall';   // este PC imprime los PrintJob de MALL
 var POLL_MS = 4000;   // ritmo de consulta de la cola (4000 es mas estable que 2000 ante 429)
 // ==============================

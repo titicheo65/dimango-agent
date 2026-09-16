@@ -25,7 +25,11 @@ var PRECUENTA = { host: '192.168.1.132', port: 9100 };
 
 // ===== COLA Base44 (PULL) =====
 var BASE44_APP_ID = '69b4f4b6d8a5cb6ca598d9e2';
-var BASE44_API_KEY = 'cf05dc9ec6d149c58382b3c341a6d0bc';
+// La api-key NO va escrita aca (ver H-019, H-035 y H-049 en la memoria).
+// Se lee de la variable de entorno BASE44_API_KEY. Si falta, el servidor NO
+// arranca: es preferible no imprimir a quedar corriendo con una llave por defecto.
+var BASE44_API_KEY = process.env.BASE44_API_KEY || '';
+if (!BASE44_API_KEY) { console.error('Falta la variable de entorno BASE44_API_KEY'); process.exit(1); }
 var LOCAL_ESTE_SERVER = 'playa';   // este PC imprime los PrintJob de PLAYA
 var POLL_MS = 4000;   // ritmo de consulta de la cola. 2000 generaba MAS 429 (peor); 4000 es mas estable.
 // ==============================
