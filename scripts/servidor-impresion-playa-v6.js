@@ -270,6 +270,15 @@ async function pollQueue() {
     var jobs = await b.entities.PrintJob.filter({ local: LOCAL_ESTE_SERVER, estado: 'pendiente' });
     for (var i = 0; i < jobs.length; i++) {
       var job = jobs[i];
+      // Anti-reimpresion en cadena (H-018): un ticket de mas de 30 minutos ya no
+      // le sirve a nadie —la mesa se fue o lo reimprimieron a mano— y si el PC
+      // estuvo caido, al volver saldrian todos juntos en pleno servicio.
+      var creadoMs = job.created_date ? Date.parse(String(job.created_date).slice(-1) === 'Z' ? job.created_date : job.created_date + 'Z') : 0;
+      if (creadoMs && (Date.now() - creadoMs) > 30 * 60 * 1000) {
+        console.warn('[COLA] Job ' + job.id + ' caducado (' + job.created_date + ') - NO se imprime');
+        try { await b.entities.PrintJob.update(job.id, { estado: 'error', error_mensaje: 'Caducado: mas de 30 min pendiente (anti-reimpresion)' }); } catch (eCad) {}
+        continue;
+      }
       try {
         // marcar 'imprimiendo' para que otra vuelta no lo tome dos veces
         await b.entities.PrintJob.update(job.id, { estado: 'imprimiendo' });
