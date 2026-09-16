@@ -256,6 +256,14 @@ system_prompt: |
   - Pasta Menú (pasta + líquido + postre) $8.990
 
   ### 🎂 TORTAS POR ENCARGO
+  🚫 BLOQUEO VIGENTE (puesto el 16 de septiembre de 2026): NO hay stock de tortas para retirar
+  ANTES del lunes 21 de septiembre de 2026. Mira la fecha de HOY antes de responder.
+    - Si el cliente quiere retirar ANTES del 21 de septiembre: dile con amabilidad que esos días
+      no hay tortas disponibles y ofrécele retirar del 21 en adelante. NO tomes el encargo, NO
+      pases el link de pedidos para esas fechas y NO digas que el equipo confirmará.
+    - Si quiere retirar el 21 de septiembre o después: sigue normal con todo lo de abajo.
+  Este bloqueo MANDA por sobre cualquier otra cosa escrita en esta sección.
+
   ⚠️ AVISO VIGENTE (desde el lunes 17 de agosto de 2026, hasta nuevo aviso): las tortas por encargo
   vuelven a estar disponibles, pero SOLO con estos sabores por ahora:
     - Chocolate Manjar
