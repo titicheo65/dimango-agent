@@ -57,11 +57,28 @@ if (-not (Test-Path (Join-Path $rutaMemoria ".git"))) {
 
 Set-Location $rutaMemoria
 
+# git tiene que existir Y estar en el PATH de la cuenta que corre la tarea.
+# El 17-sep-2026 la tarea se creo con /RU SYSTEM y fallo en silencio: SYSTEM no
+# tiene git en su PATH ni las credenciales del repo, y con ErrorActionPreference
+# en SilentlyContinue el log quedaba con una linea muda. Por eso se busca git
+# explicitamente y se dice en el log cuando no esta.
+$git = (Get-Command git -ErrorAction SilentlyContinue).Source
+if (-not $git) {
+    foreach ($ruta in @("C:\Program Files\Git\cmd\git.exe", "C:\Program Files (x86)\Git\cmd\git.exe")) {
+        if (Test-Path $ruta) { $git = $ruta; break }
+    }
+}
+if (-not $git) {
+    Log "ERROR: no se encontro git. La tarea corre con una cuenta que no lo tiene en el PATH (revisar que sea el usuario y no SYSTEM)."
+    exit 1
+}
+
 # Antes y despues, para saber si entro algo nuevo.
-$antes = (git rev-parse HEAD) 2>$null
-$salida = (git pull --ff-only 2>&1 | Out-String).Trim()
+$antes = (& $git rev-parse HEAD 2>&1 | Out-String).Trim()
+$salida = (& $git pull --ff-only 2>&1 | Out-String).Trim()
 $codigo = $LASTEXITCODE
-$despues = (git rev-parse HEAD) 2>$null
+$despues = (& $git rev-parse HEAD 2>&1 | Out-String).Trim()
+if (-not $salida) { $salida = "(sin salida de git - codigo $codigo)" }
 
 if ($codigo -ne 0) {
     $fallas = 0
@@ -79,7 +96,7 @@ if ($codigo -ne 0) {
 if (Test-Path $fallasFile) { Remove-Item $fallasFile -Force }
 
 if ($antes -ne $despues) {
-    $cuantos = (git rev-list --count "$antes..$despues") 2>$null
+    $cuantos = (& $git rev-list --count "$antes..$despues" 2>&1 | Out-String).Trim()
     Log "Memoria actualizada: $cuantos commits nuevos ($antes -> $despues)"
 } else {
     Log "Sin cambios."
