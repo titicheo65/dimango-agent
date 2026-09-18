@@ -8,6 +8,12 @@
       "port": 3456
     },
     {
+      "name": "Maximus Static",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "8077", "--directory", "agent/static"],
+      "port": 8077
+    },
+    {
       "name": "AgentKit (local)",
       "runtimeExecutable": "python3",
       "runtimeArgs": ["-m", "uvicorn", "agent.main:app", "--host", "127.0.0.1", "--port", "8055"],
@@ -18,6 +24,12 @@
       "runtimeExecutable": "sh",
       "runtimeArgs": ["-c", "cd /Users/ricardovinet/github/dimango-src && PATH=$HOME/.local/node20/bin:$PATH npm run dev -- --port 5199"],
       "port": 5199
+    },
+    {
+      "name": "Ultron Orb UI",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": ["-c", "cd /private/tmp/claude-501/-Users-ricardovinet-whatsapp-agentkit/d52d6645-1f8b-4ee5-892f-80446799ddb6/scratchpad/ultron-by-sagar-builds && PATH=$HOME/.local/node20/bin:$PATH npm run dev -- --port 3457"],
+      "port": 3457
     }
   ]
 }
