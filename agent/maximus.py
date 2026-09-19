@@ -708,8 +708,115 @@ def _lanzar_tarea_windows(task: str) -> tuple[bool, str]:
         return False, str(e)[:140]
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# CONFIRMACIÓN ANTES DE ACTUAR (19-sep-2026)
+#
+# Maximus consulta mucho y escribe poco, pero lo poco que escribe tiene
+# consecuencia física o de plata: manda comida a cocina, condona una cuenta,
+# saca dinero de la caja, deja un producto fuera de la carta.
+#
+# El control de acceso ya existía (solo el chat de Ricardo puede hablarle), así
+# que el riesgo que queda NO es que entre un extraño: es la INTERPRETACIÓN. Un
+# "saca las empanadas" puede entenderse como quitarlas de la mesa 4 o como
+# poner su stock en cero en los dos locales. Sin confirmación, esa diferencia se
+# descubre cuando el producto ya desapareció de la carta.
+#
+# Cómo funciona: la primera vez que el modelo pide una de estas herramientas, no
+# se ejecuta. Se guarda la acción pendiente y se devuelve un texto pidiendo
+# confirmación. Cuando Ricardo responde "confirmo" (o "dale", "sí", "hazlo"), el
+# siguiente intento de LA MISMA acción sí corre.
+#
+# Falla cerrado, a propósito:
+#   · si los argumentos cambian aunque sea un poco, es otra acción y vuelve a
+#     preguntar — no se aprovecha un "sí" viejo para algo distinto;
+#   · la confirmación vence a los 5 minutos;
+#   · se consume al usarse: un "confirmo" sirve para una acción, no para la
+#     tarde entera.
+#
+# Las lecturas y las acciones inocuas (notas, alertas, pantallas) no pasan por
+# acá: pedir permiso para todo entrena a decir que sí sin leer.
+# ─────────────────────────────────────────────────────────────────────────────
+
+ACCIONES_QUE_CONFIRMAN = {
+    "editar_mesa_dimango":  "tocar una mesa real (cortesía, quitar ítem o descuento)",
+    "pedido_mesa_dimango":  "mandar un pedido a cocina",
+    "stock_dimango":        "cambiar el stock de un producto",
+    "egreso_caja_dimango":  "sacar dinero de la caja",
+    "delegar":              "lanzar una automatización",
+}
+
+VIGENCIA_CONFIRMACION = 300  # segundos
+
+# Estado en memoria del proceso. No se persiste a propósito: si el agente se
+# reinicia, lo correcto es volver a preguntar.
+_pendiente: dict = {}      # {"firma": str, "ts": float, "descripcion": str}
+_confirmado: dict = {}     # {"ts": float}
+
+_PALABRAS_SI = (
+    "confirmo", "confirmado", "confirma", "dale", "hazlo", "hazla", "ok",
+    "sí", "si", "sip", "ya", "adelante", "correcto", "procede", "listo",
+)
+
+
+def _firma(nombre: str, args: dict) -> str:
+    """Identifica una acción concreta: misma herramienta Y mismos argumentos."""
+    import json
+    return nombre + "::" + json.dumps(args or {}, sort_keys=True, ensure_ascii=False)
+
+
+def registrar_confirmacion(mensaje: str) -> None:
+    """Marca que Ricardo dijo que sí. Lo llama `responder()` antes de pensar."""
+    import time
+    texto = (mensaje or "").strip().lower().strip(".!¡ ")
+    # Solo cuenta si el mensaje ES la confirmación, no si la contiene de pasada:
+    # "ok pero antes dime cuánto se vendió" no autoriza nada.
+    if texto in _PALABRAS_SI or texto in {f"{p} maximus" for p in _PALABRAS_SI}:
+        _confirmado["ts"] = time.time()
+
+
+def _describir(nombre: str, args: dict) -> str:
+    """Texto legible de lo que se va a hacer, con los datos concretos."""
+    partes = [f"{k}: {v}" for k, v in (args or {}).items() if k != "clave" and v not in (None, "")]
+    detalle = " · ".join(partes) if partes else "sin detalles"
+    return f"{ACCIONES_QUE_CONFIRMAN.get(nombre, nombre)} — {detalle}"
+
+
+def _necesita_confirmacion(nombre: str, args: dict) -> str | None:
+    """Devuelve el texto a responder si hay que confirmar, o None si puede correr."""
+    import time
+    if nombre not in ACCIONES_QUE_CONFIRMAN:
+        return None
+
+    ahora = time.time()
+    firma = _firma(nombre, args)
+    pend = _pendiente.get("firma")
+    conf_ts = _confirmado.get("ts", 0)
+
+    # Hay un sí reciente Y es para esta misma acción → corre, y se consume.
+    if pend == firma and (ahora - _pendiente.get("ts", 0)) < VIGENCIA_CONFIRMACION \
+            and (ahora - conf_ts) < VIGENCIA_CONFIRMACION and conf_ts >= _pendiente.get("ts", 0):
+        _pendiente.clear()
+        _confirmado.clear()
+        return None
+
+    # Cualquier otro caso: se pide confirmación y se guarda la acción pendiente.
+    _pendiente.clear()
+    _pendiente.update({"firma": firma, "ts": ahora, "descripcion": _describir(nombre, args)})
+    _confirmado.clear()
+    return (
+        "CONFIRMACIÓN REQUERIDA — la acción NO se ejecutó todavía.\n"
+        f"Voy a {_pendiente['descripcion']}.\n"
+        "Dile a Ricardo exactamente qué vas a hacer, con los datos concretos, y pídele "
+        "que responda 'confirmo' para ejecutarlo. No lo des por hecho ni digas que ya está."
+    )
+
+
 async def ejecutar_herramienta(nombre: str, args: dict) -> str:
     """Devuelve texto plano. Si la fuente falla, lo dice: no inventa."""
+    aviso = _necesita_confirmacion(nombre, args)
+    if aviso:
+        logger.info(f"[MAXIMUS] {nombre} en espera de confirmación")
+        return aviso
     try:
         if nombre == "indicadores_chile":
             d = await _http_json("https://mindicador.cl/api")
@@ -1403,6 +1510,9 @@ async def responder(
     """
     if not mensaje or len(mensaje.strip()) < 2:
         return "¿Me repites? No me llegó nada legible."
+
+    # Un "confirmo" suelto autoriza la acción que quedó pendiente (ver arriba).
+    registrar_confirmacion(mensaje)
 
     from agent import eventos
     await eventos.publicar("pensando", mensaje=mensaje[:200])
