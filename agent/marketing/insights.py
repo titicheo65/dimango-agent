@@ -40,8 +40,19 @@ PERMISOS_LECTURA = (
 
 
 def _token() -> str:
-    """El de la Página sirve para ambas cosas cuando Instagram está vinculado."""
-    return os.getenv("MESSENGER_PAGE_TOKEN") or os.getenv("IG_ACCESS_TOKEN") or ""
+    """
+    Token para leer métricas.
+
+    Se prefiere uno PROPIO (`META_INSIGHTS_TOKEN`) y solo si no existe se cae a
+    los de mensajería. La razón es la lección de P-018: la última rotación de
+    credenciales casi deja los dos locales sin imprimir. El token que hoy
+    responde los mensajes de Instagram y Messenger es el que sostiene la
+    atención al cliente — si para leer estadísticas hay que regenerarlo con
+    permisos nuevos, se usa uno aparte y ese no se toca.
+    """
+    return (os.getenv("META_INSIGHTS_TOKEN")
+            or os.getenv("MESSENGER_PAGE_TOKEN")
+            or os.getenv("IG_ACCESS_TOKEN") or "")
 
 
 async def _get(url: str, params: dict) -> dict:
