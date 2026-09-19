@@ -122,7 +122,8 @@ class Cerebro:
                 f"origen: {n.get('origen','—')}\n"
                 f"enlaces: {rel_txt}\n\n{n['cuerpo']}")
 
-    def contexto(self, consulta: str, top: int = 8, expandir: int = 3) -> tuple[str, str, list[str]]:
+    def contexto(self, consulta: str, top: int = 5, expandir: int = 2,
+                 vecinos_por_nota: int = 2, tope: int = 8) -> tuple[str, str, list[str]]:
         """
         Devuelve (parte_fija, parte_variable, ids).
 
@@ -133,12 +134,27 @@ class Cerebro:
         """
         hits = self.buscar(consulta, top)
         elegidos = [nid for nid, _ in hits]
-        # expandir por el grafo desde los mejores: trae lo que la nota necesita para
-        # ser entendida (lo que la contradice, lo que la cierra, lo que la bloquea)
+        # Expandir por el grafo desde los mejores: trae lo que la nota necesita
+        # para ser entendida (lo que la contradice, lo que la cierra, lo que la
+        # bloquea).
+        #
+        # CON TOPE, desde el 19-sep-2026. Antes se agregaban TODOS los vecinos de
+        # los 3 mejores hits, y hay notas muy conectadas — P-008 tiene 22 vecinos.
+        # Una sola de esas hacía que el contexto pasara de 6 notas a 14 y el
+        # bloque variable a ~13.700 tokens, que NO se cachean y se pagan enteros
+        # en cada mensaje. El tope deja el costo por consulta acotado y
+        # predecible, que es lo que faltaba.
         for nid, _ in hits[:expandir]:
+            sumados = 0
             for v in self.vecinos[nid]:
+                if len(elegidos) >= tope:
+                    break
                 if v not in elegidos:
                     elegidos.append(v)
+                    sumados += 1
+                    if sumados >= vecinos_por_nota:
+                        break
+        elegidos = elegidos[:tope]
         fija = self.core() + "\n\n" + self.indice_compacto()
         variable = ("===== NOTAS RECUPERADAS PARA ESTA PREGUNTA =====\n\n"
                     + "\n\n".join(self.nota_texto(n) for n in elegidos))

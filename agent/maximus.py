@@ -651,6 +651,28 @@ HERRAMIENTAS = [
 # ejecutar_herramienta() como las de arriba: la API la resuelve sola.
 # Para noticias, deportes, o cualquier cosa de HOY que no esté en la
 # memoria de Maximus ni en las herramientas de negocio.
+def _tools_cacheadas() -> list:
+    """
+    Las definiciones de las 21 herramientas pesan ~6.200 tokens y son IDÉNTICAS
+    en cada llamada — describen lo que Maximus sabe hacer, no la conversación.
+    Hasta el 19-sep-2026 se pagaban completas cada vez.
+
+    Marcando la ÚLTIMA con `cache_control` se cachea todo el bloque de tools que
+    viene antes (el caché corta en el último punto marcado), y a partir de la
+    segunda llamada esos tokens cuestan ~10%. El ahorro medido es ~23% de la
+    entrada por mensaje.
+
+    Se copia la última herramienta antes de marcarla: tocar HERRAMIENTAS en el
+    sitio dejaría el marcador pegado en memoria y además cambiaría el objeto que
+    otras partes leen.
+    """
+    tools = list(HERRAMIENTAS) + [WEB_SEARCH_TOOL]
+    ultima = dict(tools[-1])
+    ultima["cache_control"] = {"type": "ephemeral"}
+    tools[-1] = ultima
+    return tools
+
+
 WEB_SEARCH_TOOL = {
     "type": "web_search_20250305",
     "name": "web_search",
@@ -1569,7 +1591,7 @@ async def responder(
                     model=modelo,
                     max_tokens=2048,   # con búsqueda web, 1500 se quedaba corto y cortaba la respuesta
                     system=system_bloques,
-                    tools=HERRAMIENTAS + [WEB_SEARCH_TOOL],
+                    tools=_tools_cacheadas(),
                     messages=mensajes,
                 )
                 # cache_read_input_tokens > 0 confirma que el caché acertó (esa
