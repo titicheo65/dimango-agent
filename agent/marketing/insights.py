@@ -83,27 +83,55 @@ async def descubrir_cuentas() -> dict:
     if not token:
         return {"ok": False, "error": "No hay token de Meta configurado en el servidor."}
 
-    data = await _get(f"{GRAPH}/me/accounts", {
-        "access_token": token,
-        "fields": "id,name,instagram_business_account{id,username,followers_count}",
-    })
-    problema = _explicar_error(data)
-    if problema:
-        return {"ok": False, "error": problema}
+    campos = "id,name,instagram_business_account{id,username,followers_count}"
 
-    paginas = []
-    for p in data.get("data", []):
+    def _fila(p: dict) -> dict:
         ig = p.get("instagram_business_account") or {}
-        paginas.append({
+        return {
             "page_id": p.get("id"),
             "nombre": p.get("name"),
             "ig_id": ig.get("id"),
             "ig_usuario": ig.get("username"),
             "ig_seguidores": ig.get("followers_count"),
-        })
-    if not paginas:
-        return {"ok": False, "error": "El token no ve ninguna Página. Revisar que sea token de Página y no personal."}
-    return {"ok": True, "paginas": paginas}
+        }
+
+    # Hay DOS tipos de token y se comportan distinto — el 19-sep-2026 esto falló
+    # con "(#100) Tried accessing nonexisting field (accounts)":
+    #
+    #   · token de USUARIO → /me es la persona, y sus páginas están en /me/accounts
+    #   · token de PÁGINA  → /me YA ES la página, y no tiene campo `accounts`
+    #
+    # DiMango usa el segundo (el mismo con el que responde los mensajes), así que
+    # se prueba primero el camino de usuario y se cae al de página. Preguntar en
+    # vez de asumir: el tipo de token puede cambiar si algún día se reconfigura.
+    data = await _get(f"{GRAPH}/me/accounts", {"access_token": token, "fields": campos})
+    err = (data or {}).get("error") or {}
+    es_token_de_pagina = err.get("code") == 100 and "accounts" in str(err.get("message", ""))
+
+    if not es_token_de_pagina:
+        problema = _explicar_error(data)
+        if problema:
+            return {"ok": False, "error": problema}
+        paginas = [_fila(p) for p in data.get("data", [])]
+        if paginas:
+            return {"ok": True, "paginas": paginas, "tipo_token": "usuario"}
+
+    # Camino del token de Página.
+    data = await _get(f"{GRAPH}/me", {"access_token": token, "fields": campos})
+    problema = _explicar_error(data)
+    if problema:
+        return {"ok": False, "error": problema}
+    if not data.get("id"):
+        return {"ok": False, "error": "El token no devuelve ninguna Página ni usuario."}
+
+    fila = _fila(data)
+    if not fila.get("ig_id"):
+        fila["nota"] = (
+            "La Página responde, pero no se ve la cuenta de Instagram vinculada. "
+            "Puede ser que falte el permiso instagram_basic en el token, o que la "
+            "cuenta de Instagram no esté conectada a esta Página como cuenta de empresa."
+        )
+    return {"ok": True, "paginas": [fila], "tipo_token": "pagina"}
 
 
 async def publicaciones_instagram(ig_id: str, limite: int = 50) -> dict:
