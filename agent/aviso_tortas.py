@@ -1,4 +1,4 @@
-# agent/aviso_tortas.py — avisa a Dimango Control cuando alguien pregunta por tortas
+# agent/aviso_tortas.py — avisa a Dimango Control cuando una conversacion compromete algo
 #
 # Por que existe (P-023): en septiembre de 2026 el agente comprometio una torta
 # para el mismo dia. No quedo registrada en ningun sistema y nadie en el negocio
@@ -54,13 +54,44 @@ def menciona_torta(texto: str) -> bool:
     return any(clave in t for clave in CLAVES)
 
 
+# El mismo agujero existia para el retiro en el Mall: el prompt le pedia tomar
+# datos y prometer que el equipo confirmaria, y el Mall no tiene link de
+# pedidos — o sea que eso moria en el chat igual que la torta. Aca hacen falta
+# DOS senales juntas (el local y la intencion de encargar), porque "mall" solo
+# aparece en cualquier consulta de horarios y llenaria el grupo de ruido.
+CLAVES_MALL = ("mall", "diego portales", "plaza arica", "sucursal")
+# Raices, no palabras completas: "guardan", "encargue" y "reservame" tienen que
+# entrar igual que "guardar". Con la palabra entera se escapaban conjugaciones
+# que un cliente usa todo el tiempo.
+CLAVES_ENCARGO = (
+    "pedid", "pedir", "encarg", "reserv", "retir",
+    "guard", "dejar list", "llevar", "anotar", "aparta",
+)
+
+
+def menciona_retiro_mall(texto: str) -> bool:
+    t = _normalizar(texto)
+    return (any(c in t for c in CLAVES_MALL)
+            and any(c in t for c in CLAVES_ENCARGO))
+
+
 async def avisar_si_corresponde(telefono: str, mensaje: str, respuesta: str) -> bool:
     """
     Si el cliente hablo de tortas, manda el aviso a Dimango Control.
     Devuelve True solo si se envio. Nunca lanza excepcion.
     """
     try:
-        if not menciona_torta(mensaje):
+        if menciona_torta(mensaje):
+            titulo = "🎂 Consulta de torta por WhatsApp"
+            cola = ("⚠️ El agente NO confirma tortas. Si esto va en serio, "
+                    "alguien tiene que contactar al cliente para confirmar "
+                    "disponibilidad y cobrar el abono.")
+        elif menciona_retiro_mall(mensaje):
+            titulo = "🏬 Posible pedido de retiro en el Mall"
+            cola = ("⚠️ El Mall no tiene link de pedidos: esto NO queda "
+                    "registrado en ningun sistema. Si el cliente quiere "
+                    "encargar algo, hay que contactarlo.")
+        else:
             return False
 
         ahora = time.time()
@@ -70,20 +101,18 @@ async def avisar_si_corresponde(telefono: str, mensaje: str, respuesta: str) -> 
 
         if not BOT_TOKEN or not CHAT_CONTROL:
             logger.warning(
-                "[TORTAS] %s pregunto por tortas y no se pudo avisar: "
+                "[AVISO] %s consulto algo que requiere aviso y no se pudo enviar: "
                 "falta TELEGRAM_BOT_TOKEN o TELEGRAM_CHAT_CONTROL",
                 telefono,
             )
             return False
 
         texto = (
-            "🎂 Consulta de torta por WhatsApp\n\n"
+            f"{titulo}\n\n"
             f"📱 Cliente: {telefono}\n"
             f"💬 Dijo: {mensaje[:400]}\n\n"
             f"🤖 El agente respondio: {respuesta[:400]}\n\n"
-            "⚠️ El agente NO confirma tortas. Si esto va en serio, "
-            "alguien tiene que contactar al cliente para confirmar "
-            "disponibilidad y cobrar el abono."
+            f"{cola}"
         )
 
         async with httpx.AsyncClient(timeout=10) as client:
