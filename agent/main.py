@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
 from agent.brain import generar_respuesta
+from agent.aviso_tortas import avisar_si_corresponde
 from agent.memory import (
     inicializar_db, guardar_mensaje, obtener_historial, esta_pausada, guardar_nombre,
     listar_conversaciones_privadas, obtener_conversacion_completa, es_privada,
@@ -315,6 +316,11 @@ async def webhook_handler(request: Request):
             await canal.enviar_mensaje(msg.telefono, respuesta)
 
             logger.info(f"Respuesta a {msg.telefono}: {respuesta}")
+
+            # Si el cliente pregunto por tortas, avisar a Dimango Control (P-023).
+            # Va DESPUES de responder y no puede fallar hacia afuera: el cliente
+            # ya tiene su respuesta pase lo que pase con el aviso.
+            await avisar_si_corresponde(msg.telefono, msg.texto, respuesta)
 
         return {"status": "ok"}
 
