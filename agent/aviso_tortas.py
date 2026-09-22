@@ -55,10 +55,11 @@ def menciona_torta(texto: str) -> bool:
 
 
 # El mismo agujero existia para el retiro en el Mall: el prompt le pedia tomar
-# datos y prometer que el equipo confirmaria, y el Mall no tiene link de
-# pedidos — o sea que eso moria en el chat igual que la torta. Aca hacen falta
-# DOS senales juntas (el local y la intencion de encargar), porque "mall" solo
-# aparece en cualquier consulta de horarios y llenaria el grupo de ruido.
+# datos y prometer que el equipo confirmaria la preparacion. El Mall SI tiene
+# link (/BienvenidaRetiroLocalMall) y el prompt ahora lo entrega — pero el
+# cliente que no lo completa igual se pierde, y eso nadie lo ve. Este aviso es
+# para enterarse de esa demanda. Hacen falta DOS senales juntas (el local y la
+# intencion de encargar): "mall" solo aparece en cualquier consulta de horarios.
 CLAVES_MALL = ("mall", "diego portales", "plaza arica", "sucursal")
 # Raices, no palabras completas: "guardan", "encargue" y "reservame" tienen que
 # entrar igual que "guardar". Con la palabra entera se escapaban conjugaciones
@@ -87,10 +88,10 @@ async def avisar_si_corresponde(telefono: str, mensaje: str, respuesta: str) -> 
                     "alguien tiene que contactar al cliente para confirmar "
                     "disponibilidad y cobrar el abono.")
         elif menciona_retiro_mall(mensaje):
-            titulo = "🏬 Posible pedido de retiro en el Mall"
-            cola = ("⚠️ El Mall no tiene link de pedidos: esto NO queda "
-                    "registrado en ningun sistema. Si el cliente quiere "
-                    "encargar algo, hay que contactarlo.")
+            titulo = "🏬 Consulta de pedido para el Mall"
+            cola = ("ℹ️ El agente le dio el link de retiro del Mall. Si no lo "
+                    "completa, ese pedido no existe para nadie: revisar si "
+                    "vale la pena contactarlo.")
         else:
             return False
 
