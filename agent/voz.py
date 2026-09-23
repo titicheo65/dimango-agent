@@ -107,12 +107,38 @@ def _dinero_a_palabras(texto: str) -> str:
     return _PATRON_DINERO.sub(reemplazar, texto)
 
 
+def _quitar_emojis(texto: str) -> str:
+    """
+    El sintetizador LEE los emojis en voz alta: "Hola 👋" sale como
+    "Hola, mano saludando". Medido el 23-sep-2026 contra edge-tts —
+    "Hola" 11.232 bytes de audio, "Hola 👋" 12.240: ese kilobyte de más
+    es el emoji hablado. Los signos ! y ? NO se pronuncian (dan entonación),
+    por eso no se tocan.
+
+    Se van los emojis y pictogramas, no los acentos ni la ñ.
+    """
+    fuera = []
+    for c in texto:
+        o = ord(c)
+        if (0x1F000 <= o <= 0x1FAFF          # emoticones, objetos, símbolos, banderas
+                or 0x2600 <= o <= 0x27BF     # misceláneos y dingbats (☀ ✅ ➡)
+                or 0x2300 <= o <= 0x23FF     # técnicos (⏰ ⌚ ⏳)
+                or 0x2B00 <= o <= 0x2BFF     # flechas y formas extra (⬆ ⭐)
+                or 0x2190 <= o <= 0x21FF     # flechas
+                or o in (0x00A9, 0x00AE, 0x203C, 0x2049, 0x2122)  # © ® ‼ ⁉ ™
+                or o in (0xFE0F, 0xFE0E, 0x20E3, 0x200D)):  # modificadores invisibles
+            continue
+        fuera.append(c)
+    return re.sub(r"[ \t]{2,}", " ", "".join(fuera))
+
+
 def _limpiar_para_voz(texto: str) -> str:
     """
     Saca el marcado que suena mal leído en voz alta.
     Los asteriscos de negrita de WhatsApp se leerían como "asterisco".
     """
     limpio = _dinero_a_palabras(texto)
+    limpio = _quitar_emojis(limpio)
     limpio = limpio.replace("*", "").replace("_", "").replace("`", "")
     limpio = limpio.replace("—", ",").replace("·", ",")
     # Los guiones de lista al inicio de línea se leen como pausa, no como "guion"
