@@ -100,6 +100,18 @@ async def main() -> None:
     encabezado = f"📣 MARKETING DIMANGO — {hoy:%A %d-%m}\n"
     if not banco_fotos.cargar_catalogo():
         encabezado += "⚠️ El banco de fotos está vacío: las propuestas van sin imagen asignada.\n"
+
+    # Las fotos que quedaron fuera se avisan ACA, no en el log. El modo de
+    # fallar de este banco es el silencio: quien subio una foto que no
+    # califica jura que la subio, y tiene razon. Que lo diga el mensaje que
+    # Ricardo sí lee.
+    fuera = banco_fotos.descartadas()
+    if fuera:
+        encabezado += f"\n⚠️ {len(fuera)} archivo(s) en la carpeta que NO se pueden usar:\n"
+        for f in fuera[:6]:
+            encabezado += f"   · {f}\n"
+        if len(fuera) > 6:
+            encabezado += f"   · …y {len(fuera) - 6} más\n"
     cuerpo = encabezado + "\n" + texto
 
     (HISTORIAL / f"{hoy:%Y-%m-%d}.txt").write_text(cuerpo, encoding="utf-8")

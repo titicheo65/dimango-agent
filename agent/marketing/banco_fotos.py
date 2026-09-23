@@ -93,6 +93,39 @@ def fotos_en_carpeta() -> list[pathlib.Path]:
     )
 
 
+def descartadas() -> list[str]:
+    """
+    Archivos que hay en la carpeta y que NO se van a catalogar, con el motivo.
+
+    Existe porque el modo de fallar de este banco es el silencio: una foto que
+    no califica simplemente no aparece, y quien la subio jura que la subio —
+    con razon. Paso con las 11 fotos de helado, que estaban desde hacia dias en
+    una subcarpeta que nadie miraba.
+
+    Los dos motivos reales:
+      · HEIC — el formato con que el iPhone graba por defecto. No se puede
+        mandar a catalogar. Se arregla en el telefono: Ajustes > Camara >
+        Formatos > "Mas compatible", o exportando como JPG.
+      · Pesa mas de 5 MB, que es el tope por imagen.
+    """
+    if not CARPETA.exists():
+        return []
+    fuera = []
+    for p in sorted(CARPETA.rglob("*")):
+        if not p.is_file() or p.name.startswith(".") or p.name == CATALOGO.name:
+            continue
+        ext = p.suffix.lower()
+        if ext in {".heic", ".heif"}:
+            fuera.append(f"{p.name} — formato HEIC del iPhone, hay que pasarla a JPG")
+        elif ext not in EXTENSIONES:
+            if ext not in {".json", ".txt", ".md"}:
+                fuera.append(f"{p.name} — formato no soportado ({ext or 'sin extensión'})")
+        elif p.stat().st_size > LIMITE_BYTES:
+            mb = p.stat().st_size / 1024 / 1024
+            fuera.append(f"{p.name} — pesa {mb:.1f} MB, el tope es 5 MB")
+    return fuera
+
+
 async def catalogar_nuevas(client, modelo: str, maximo: int = 10) -> dict:
     """
     Describe las fotos que todavía no están en el catálogo.
