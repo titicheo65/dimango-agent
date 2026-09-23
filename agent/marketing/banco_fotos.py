@@ -69,11 +69,27 @@ def guardar_catalogo(cat: dict) -> None:
 
 
 def fotos_en_carpeta() -> list[pathlib.Path]:
+    """
+    Todas las fotos, INCLUIDAS LAS DE SUBCARPETAS.
+
+    Antes solo miraba el primer nivel (`iterdir`), y eso escondía trabajo ya
+    hecho: las 11 fotos de helado estaban en `dimango-marketing-fotos/helados/`
+    y el agente no las veía. Como el helado es el producto número uno del
+    negocio (D-019), el banco quedaba sin justo lo que más se vende y las
+    propuestas salían de tortas y pizzas.
+
+    Organizar por carpetas es lo natural para quien sube las fotos, así que se
+    acomoda el código, no la persona. La huella es por contenido, así que dos
+    archivos con el mismo nombre en carpetas distintas no se pisan.
+    """
     if not CARPETA.exists():
         return []
     return sorted(
-        p for p in CARPETA.iterdir()
-        if p.is_file() and p.suffix.lower() in EXTENSIONES and p.stat().st_size <= LIMITE_BYTES
+        p for p in CARPETA.rglob("*")
+        if p.is_file()
+        and p.suffix.lower() in EXTENSIONES
+        and not p.name.startswith(".")
+        and p.stat().st_size <= LIMITE_BYTES
     )
 
 
