@@ -383,9 +383,11 @@ async def maximus_chat(request: Request):
     await guardar_mensaje(sesion, "user", mensaje)
     await guardar_mensaje(sesion, "assistant", respuesta)
 
-    # La voz viaja en la misma respuesta: una sola vuelta al servidor.
-    # Si la síntesis falla, el texto igual llega — la voz nunca hace perder
-    # una respuesta.
+    # La voz YA NO deberia viajar aca: sintetizar toma ~2,4 s y durante todo
+    # ese rato el texto —que ya esta listo— se queda esperando en el servidor.
+    # Los paneles piden el audio aparte, a /maximus/voz, y mientras tanto ya
+    # estan leyendo. Este bloque se conserva solo para clientes viejos que
+    # sigan mandando voz:true; el dia que no quede ninguno, se borra.
     audio_b64 = ""
     if datos.get("voz"):
         try:
@@ -398,6 +400,55 @@ async def maximus_chat(request: Request):
 
     logger.info(f"[MAXIMUS/WEB] {mensaje[:70]}")
     return {"respuesta": respuesta, "notas": notas, "audio": audio_b64}
+
+
+@app.post("/maximus/voz")
+async def maximus_voz(request: Request):
+    """
+    Solo la voz de un texto que el panel YA tiene en pantalla.
+
+    Existe para que el texto no espere al audio. Antes el panel pedia
+    respuesta y voz juntas, y la sintesis (~2,4 s medidos) se sumaba entera
+    al tiempo de espera: Maximus ya habia terminado de pensar y la pantalla
+    seguia en blanco. Ahora el texto se pinta apenas llega y el audio entra
+    despues, cuando esta.
+
+    No consume un turno de Claude: solo sintetiza. Antes, para hablar un
+    texto ya generado, el cerebro mandaba "Repite exactamente esto: ..." al
+    chat — un turno completo del modelo para no decir nada nuevo.
+
+    Mismo token que /maximus/chat.
+    """
+    token_ok = os.getenv("MAXIMUS_CHAT_TOKEN", "")
+    if not token_ok:
+        raise HTTPException(status_code=503, detail="Chat no habilitado")
+
+    if request.headers.get("x-maximus-token", "") != token_ok:
+        raise HTTPException(status_code=401, detail="No autorizado")
+
+    try:
+        datos = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="JSON inválido")
+
+    texto = (datos.get("texto") or "").strip()
+    if not texto:
+        raise HTTPException(status_code=400, detail="Falta el texto")
+
+    # Tope de cortesia: la voz es para respuestas, no para documentos. El
+    # limite fino (y el "voz clonada on/off") vive en voz.py.
+    texto = texto[:4000]
+
+    try:
+        import base64
+        audio = await sintetizar_voz(texto)
+        if audio:
+            return {"audio": base64.b64encode(audio).decode("ascii")}
+    except Exception as e:
+        logger.error(f"[MAXIMUS/VOZ] Falló la síntesis: {e}")
+
+    # Sin audio no es un error: el texto ya esta en pantalla.
+    return {"audio": ""}
 
 
 @app.get("/maximus/estado-locales")

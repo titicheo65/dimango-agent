@@ -581,17 +581,37 @@
     el('transcript').innerHTML = '<span class="you">Tú:</span> '+texto;
     el('reply').textContent=''; setState('piensa');
     try{
+      // Sin voz aquí: el audio se pide aparte. Pedirlo junto con el texto
+      // sumaba los ~2,4 s del sintetizador a la espera, con la respuesta ya
+      // lista en el servidor y la pantalla en blanco.
       const r = await fetch(base()+'/maximus/chat', {method:'POST', headers:hdr(),
-        body: JSON.stringify({mensaje:texto, sesion:'command', voz: true})});
+        body: JSON.stringify({mensaje:texto, sesion:'command'})});
       if(!r.ok) throw new Error('HTTP '+r.status);
       const d = await r.json();
       lastNotas = Array.isArray(d.notas) ? d.notas : [];
       highlightMemoria();
       el('reply').textContent = d.respuesta||'';
-      if(d.audio){ setState('habla'); playAudio(d.audio); } else { setState('espera'); }
+      setState('espera');
+      pedirVoz(d.respuesta);   // entra cuando esté; ya puedes leer
     }catch(e){ el('reply').innerHTML='<span class="err">No pude contactar a Maximus ('+(e.message||e)+').</span>'; setState('espera'); }
     busy=false;
   }
+  // Pide solo el audio de un texto que ya está en pantalla (ver /maximus/voz).
+  // El contador descarta el audio de una pregunta vieja: si preguntas otra
+  // cosa mientras el sintetizador trabaja, esa voz ya no interesa.
+  let ultimoPedidoVoz = 0;
+  async function pedirVoz(texto){
+    if(!texto) return;
+    const pedido = ++ultimoPedidoVoz;
+    try{
+      const r = await fetch(base()+'/maximus/voz', {method:'POST', headers:hdr(),
+        body: JSON.stringify({texto})});
+      if(!r.ok) return;
+      const d = await r.json();
+      if(d.audio && pedido === ultimoPedidoVoz){ setState('habla'); playAudio(d.audio); }
+    }catch(e){ /* sin voz no pasa nada: el texto ya está */ }
+  }
+
   // Reproducción robusta de la voz + animación del avatar.
   // Un <audio> persistente ruteado por Web Audio: suena en Safari (Mac e iPhone) y Chrome
   // aun después de un await, y el AnalyserNode alimenta la animación "hablando".
@@ -612,7 +632,9 @@
       speakRAF=requestAnimationFrame(loop); };
     speakRAF=requestAnimationFrame(loop); }
   function stopSpeakAnim(){ if(speakRAF){ cancelAnimationFrame(speakRAF); speakRAF=null; } const wrap=el('avatarwrap'); if(wrap) wrap.style.setProperty('--amp','0'); }
-  function stopAudio(){ try{ if(ttsEl) ttsEl.pause(); }catch(e){} stopSpeakAnim(); }
+  // Callarlo tiene que callar también la voz que venía en camino, no solo la
+  // que ya está sonando.
+  function stopAudio(){ ultimoPedidoVoz++; try{ if(ttsEl) ttsEl.pause(); }catch(e){} stopSpeakAnim(); }
   async function playAudio(b64){ ensureAudio(); stopSpeakAnim();
     try{ ttsEl.pause(); ttsEl.currentTime=0; }catch(e){}
     ttsEl.src='data:audio/mpeg;base64,'+b64;
