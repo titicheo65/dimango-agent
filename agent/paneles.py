@@ -291,7 +291,8 @@ async def agentes_panel() -> dict:
     except Exception as e:
         logger.info(f"[PANELES] nombres de equipo no disponibles: {e}")
 
-    COL = {"Núcleo": "#38cde0", "Canales": "#8b7be8", "Operaciones": "#41d19a"}
+    COL = {"Núcleo": "#38cde0", "Canales": "#8b7be8", "Operaciones": "#41d19a",
+           "Marketing": "#f0a63c"}
 
     def A(id_, nombre, rol, estado, grupo):
         return {"id": id_, "nombre": overrides.get(id_, nombre), "nombre_default": nombre,
@@ -319,9 +320,20 @@ async def agentes_panel() -> dict:
         "sync_memoria": ("Maximus-Sync-Memoria", "Sync Memoria", "Sincroniza la memoria"),
         "checklist_repo": ("DimangoChecklistReposicion", "Reposición", "Checklist de insumos"),
     }
-    estados = await asyncio.to_thread(_estado_tareas_windows, [t[0] for t in tareas.values()])
+
+    # Marketing va en su propio grupo: no es operación del local, es trabajo
+    # sobre el negocio. Faltaban desde que se programaron (23-sep) porque esta
+    # lista se escribe a mano — el panel mostraba 16 agentes y ya eran 18.
+    tareas_marketing = {
+        "marketing_diario": ("Maximus-MarketingDiario", "Marketing", "Propuestas de contenido, 10:00"),
+        "laboratorio": ("Maximus-LaboratorioSemanal", "Laboratorio", "Una prueba nueva por semana, sábados"),
+    }
+    todas = {**tareas, **tareas_marketing}
+    estados = await asyncio.to_thread(_estado_tareas_windows, [t[0] for t in todas.values()])
     for id_, (tn, nombre, rol) in tareas.items():
         agentes.append(A(id_, nombre, rol, estados.get(tn, "desconocido"), "Operaciones"))
+    for id_, (tn, nombre, rol) in tareas_marketing.items():
+        agentes.append(A(id_, nombre, rol, estados.get(tn, "desconocido"), "Marketing"))
 
     activos = sum(1 for a in agentes if a["estado"] in ("activo", "corriendo"))
     return {"agentes": agentes, "activos": activos, "total": len(agentes)}
