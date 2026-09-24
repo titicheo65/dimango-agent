@@ -500,6 +500,47 @@ HERRAMIENTAS = [
         },
     },
     {
+        "name": "movimientos_bodega",
+        "description": (
+            "Movimientos REALES de bodega en DiMangoWorking: qué salió y entró, "
+            "cuánto, a qué área, a qué local y QUIÉN lo hizo. Úsala cuando "
+            "pregunten por los retiros o entregas de bodega de un día ('qué "
+            "sacaron ayer de bodega', 'quién retiró la carne', 'qué se despachó "
+            "al Mall el lunes'). "
+            "OJO con la diferencia, que importa: `bodega_dimango` dice el stock "
+            "que HAY, el checklist dice lo que SE DEBIÓ consumir según la venta, "
+            "y esta dice lo que DE VERDAD se movió. Para cuadrar teoría contra "
+            "realidad, se usan juntas."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "dias": {
+                    "type": "number",
+                    "description": "Cuántos días hacia atrás incluir. 0 = solo hoy, 1 = ayer y hoy. Por defecto 0.",
+                },
+                "fecha": {
+                    "type": "string",
+                    "description": "AAAA-MM-DD para un día exacto. Si va esto, manda sobre 'dias'.",
+                },
+                "tipo": {
+                    "type": "string",
+                    "enum": ["SALIDA", "ENTRADA"],
+                    "description": "SALIDA es lo que se retiró de bodega; ENTRADA lo que se recibió. Sin esto, ambos.",
+                },
+                "local": {
+                    "type": "string",
+                    "enum": ["playa", "mall"],
+                    "description": "Filtra por el local al que iba la entrega.",
+                },
+                "item": {
+                    "type": "string",
+                    "description": "Parte del nombre de un producto, ej: 'salmon', 'macarron'.",
+                },
+            },
+        },
+    },
+    {
         "name": "bodega_dimango",
         "description": (
             "Bodega general de DiMangoWorking: costo y stock de un insumo "
@@ -702,6 +743,7 @@ DIMANGOTOGO_SECRET = os.getenv("DIMANGOTOGO_MAXIMUS_SECRET", "")
 
 DIMANGOWORKING_GASTOS_URL = "https://dimangoworking.base44.app/functions/maximusGastos"
 DIMANGOWORKING_BODEGA_URL = "https://dimangoworking.base44.app/functions/maximusBodega"
+DIMANGOWORKING_MOVIMIENTOS_URL = "https://dimangoworking.base44.app/functions/maximusMovimientos"
 DIMANGOWORKING_SECRET = os.getenv("DIMANGOWORKING_MAXIMUS_SECRET", "")
 
 # URLs secretas de los calendarios de Ricardo (iCloud, "dirección pública/
@@ -1249,6 +1291,67 @@ async def ejecutar_herramienta(nombre: str, args: dict) -> str:
                 partes.append("\nMayores proveedores:")
                 for p, monto in top_prov:
                     partes.append(f"  {p}: ${monto:,.0f}".replace(",", "."))
+            return "\n".join(partes)
+
+        if nombre == "movimientos_bodega":
+            if not DIMANGOWORKING_SECRET:
+                return ("No puedo consultar DimangoWorking: falta DIMANGOWORKING_MAXIMUS_SECRET "
+                        "en el .env del servidor. Avísale a Ricardo.")
+            import httpx
+            payload = {k: args[k] for k in ("dias", "fecha", "tipo", "local", "item") if args.get(k) is not None}
+            try:
+                async with httpx.AsyncClient(timeout=25) as c:
+                    r = await c.post(
+                        DIMANGOWORKING_MOVIMIENTOS_URL,
+                        json=payload,
+                        headers={"x-maximus-secret": DIMANGOWORKING_SECRET},
+                    )
+            except httpx.RequestError as e:
+                return f"No pude conectar con DimangoWorking: {e}"
+            if r.status_code != 200:
+                return f"DimangoWorking respondió {r.status_code}: {r.text[:300]}"
+            d = r.json()
+            if not d.get("ok"):
+                return f"No pude leer los movimientos: {d.get('error', 'sin detalle')}"
+
+            v = d.get("ventana", {})
+            cabecera = f"Movimientos de bodega · {v.get('desde')}"
+            if v.get("hasta") and v.get("hasta") != v.get("desde"):
+                cabecera += f" a {v.get('hasta')}"
+            if v.get("tipo") != "todos":
+                cabecera += f" · {v.get('tipo')}"
+            if v.get("local") != "ambos":
+                cabecera += f" · {v.get('local')}"
+
+            if not d.get("total_movimientos"):
+                return f"{cabecera}: no hubo movimientos registrados."
+
+            partes = [f"{cabecera} — {d['total_movimientos']} movimientos."]
+
+            top = d.get("top_items", [])
+            if top:
+                partes.append("\nLo que más se movió:")
+                for it in top[:8]:
+                    partes.append(f"  · {it['nombre']}: {it['cantidad']} {it.get('unidad') or ''}".rstrip())
+
+            quien = d.get("por_responsable", {})
+            if quien:
+                orden = sorted(quien.items(), key=lambda x: -x[1])
+                partes.append("\nQuién movió:")
+                for nombre_r, veces in orden[:6]:
+                    partes.append(f"  · {nombre_r}: {veces} movimientos")
+
+            # El detalle solo si son pocos: una lista de 80 lineas por voz es inutil.
+            movs = d.get("movimientos", [])
+            if len(movs) <= 12:
+                partes.append("\nDetalle:")
+                for m in movs:
+                    dest = f" → {m['local'] or m['destino']}" if (m.get('local') or m.get('destino')) else ""
+                    quien_m = f" ({m['responsable']})" if m.get("responsable") else ""
+                    partes.append(f"  {m.get('hora','')} {m['tipo']}: {m['item']} {m['cantidad']} {m.get('unidad') or ''}{dest}{quien_m}")
+            else:
+                partes.append(f"\n(Hay {len(movs)} movimientos en detalle; pide uno puntual con 'item' si querés verlos.)")
+
             return "\n".join(partes)
 
         if nombre == "bodega_dimango":
