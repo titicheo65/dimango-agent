@@ -14,16 +14,33 @@ logger = logging.getLogger("agentkit")
 
 
 # ── Ventas / Top productos / Stock (DiMangoToGo) ──────────────────────────
-async def ventas_panel() -> dict:
-    """Ventas de hoy por local + medios de pago + top productos + stock bajo mínimo."""
+async def ventas_panel(fecha_inicio: str = "", fecha_fin: str = "", local: str = "") -> dict:
+    """
+    Ventas por local + medios de pago + top productos + stock bajo mínimo.
+
+    Sin fechas devuelve HOY, que es el uso normal en el televisor. Con fechas
+    devuelve ese rango.
+
+    Por qué existe el rango (24-sep-2026): `maximusVentas` en DiMangoToGo
+    SIEMPRE aceptó fecha_inicio/fecha_fin —la herramienta de chat las usa a
+    diario— pero este panel mandaba la consulta vacía. Resultado: Maximus podía
+    decirte por chat cuánto se vendió la semana pasada, y al pedirle verlo en
+    pantalla contestaba que no tenía modo histórico. El dato estaba; el panel
+    no lo pedía.
+    """
     from agent.maximus import DIMANGOTOGO_URL, DIMANGOTOGO_SECRET
     if not DIMANGOTOGO_SECRET:
         return {"error": "DiMangoToGo no configurado en el servidor."}
 
+    consulta = {}
+    if fecha_inicio: consulta["fecha_inicio"] = fecha_inicio
+    if fecha_fin:    consulta["fecha_fin"] = fecha_fin
+    if local:        consulta["local"] = local
+
     import httpx
     try:
         async with httpx.AsyncClient(timeout=20) as c:
-            r = await c.post(DIMANGOTOGO_URL, json={}, headers={"x-maximus-secret": DIMANGOTOGO_SECRET})
+            r = await c.post(DIMANGOTOGO_URL, json=consulta, headers={"x-maximus-secret": DIMANGOTOGO_SECRET})
     except httpx.RequestError as e:
         return {"error": f"No pude conectar con DiMangoToGo: {e}"}
     if r.status_code != 200:
@@ -57,6 +74,11 @@ async def ventas_panel() -> dict:
         "propinas": resumen.get("propinas_total", 0),
         "top_productos": top,
         "stock_bajo": stock_bajo,
+        # El rango viaja de vuelta para que la pantalla pueda decir QUE periodo
+        # esta mostrando. Un numero sin fecha al lado se lee como "hoy" aunque
+        # no lo sea, y eso es peor que no mostrarlo.
+        "rango": {"desde": fecha_inicio or "", "hasta": fecha_fin or "", "local": local or ""},
+        "es_hoy": not (fecha_inicio or fecha_fin),
     }
 
 

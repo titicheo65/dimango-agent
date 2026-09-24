@@ -396,7 +396,31 @@
     return r.json();
   }
   let ventasCache=null, ventasT=0;
-  async function ventas(){ if(ventasCache && Date.now()-ventasT<20000) return ventasCache; ventasCache=await getJSON('/maximus/panel/ventas'); ventasT=Date.now(); return ventasCache; }
+  // El cache va POR RANGO. Con un solo cache, pedir "la semana pasada" justo
+  // despues de ver el panel de hoy devolvia lo de hoy con fecha de la semana
+  // pasada: el peor error posible en una pantalla de numeros.
+  const ventasCaches = {};
+  async function ventas(p){
+    const qs = [];
+    if(p && p.fecha_inicio) qs.push('fecha_inicio=' + encodeURIComponent(p.fecha_inicio));
+    if(p && p.fecha_fin)    qs.push('fecha_fin='    + encodeURIComponent(p.fecha_fin));
+    if(p && p.local)        qs.push('local='        + encodeURIComponent(p.local));
+    const clave = qs.join('&') || 'hoy';
+    const c = ventasCaches[clave];
+    // Lo de hoy se refresca cada 20 s; un rango pasado no cambia, se guarda 10 min.
+    const vida = (clave === 'hoy') ? 20000 : 600000;
+    if(c && Date.now() - c.t < vida) return c.d;
+    const d = await getJSON('/maximus/panel/ventas' + (qs.length ? '?' + qs.join('&') : ''));
+    ventasCaches[clave] = { d, t: Date.now() };
+    return d;
+  }
+  // Etiqueta del periodo, para que un numero nunca quede sin decir de cuando es.
+  function periodo(d){
+    if(!d || d.es_hoy !== false) return '';
+    const r = d.rango || {};
+    const txt = (r.desde && r.hasta && r.desde !== r.hasta) ? `${r.desde} a ${r.hasta}` : (r.desde || r.hasta || '');
+    return txt ? `<div class="muted" style="margin-bottom:6px">📅 ${txt}${r.local ? ' · ' + r.local : ''}</div>` : '';
+  }
 
   // ---- feed de actividad (alimentado por SSE) ----
   let activityLog = [];
@@ -462,18 +486,18 @@
   }
 
   const RENDER = {
-    async ventas(p){ const d=await ventas(); const pl=d.por_local||{}; const playa=pl.playa||{monto:0}, mall=pl.mall||{monto:0};
+    async ventas(p){ const d=await ventas(p); const pl=d.por_local||{}; const playa=pl.playa||{monto:0}, mall=pl.mall||{monto:0};
       const tot=(playa.monto||0)+(mall.monto||0); const mx=Math.max(playa.monto||0, mall.monto||0, 1);
       let medios=''; (d.medios_pago? Object.entries(d.medios_pago):[]).slice(0,4).forEach(([k,v])=>{ medios+=`<div class="row"><span class="n">${k}</span><span class="v">$${moneyFull(v)}</span></div>`; });
-      return `<div class="kpi"><span class="cur">$</span>${moneyFull(tot)}</div>
+      return `${periodo(d)}<div class="kpi"><span class="cur">$</span>${moneyFull(tot)}</div>
         <div class="bars"><div class="b" style="height:${Math.round((playa.monto||0)/mx*100)}%"></div><div class="b" style="height:${Math.round((mall.monto||0)/mx*100)}%"></div></div>
         <div class="barlabels"><span>Playa</span><span>Mall</span></div>
         <div class="row"><span class="n">Playa Chinchorro</span><span class="v">$${moneyFull(playa.monto)}</span></div>
         <div class="row"><span class="n">Mall Plaza</span><span class="v">$${moneyFull(mall.monto)}</span></div>
         ${medios?'<div style="margin-top:8px" class="muted">Medios de pago</div>'+medios:''}`; },
-    async top_productos(p){ const d=await ventas(); const t=(d.top_productos||[]).slice(0,10); if(!t.length) return '<div class="muted">Sin ventas registradas todavía.</div>';
-      return t.map((x,i)=>`<div class="row"><span class="n">${i+1} · ${x.nombre||'—'}</span><span class="v">${x.cantidad||0}</span></div>`).join(''); },
-    async alertas(p){ let out=''; try{ const d=await ventas(); const bajo=(d.stock_bajo||[]);
+    async top_productos(p){ const d=await ventas(p); const t=(d.top_productos||[]).slice(0,10); if(!t.length) return '<div class="muted">Sin ventas registradas todavía.</div>';
+      return periodo(d) + t.map((x,i)=>`<div class="row"><span class="n">${i+1} · ${x.nombre||'—'}</span><span class="v">${x.cantidad||0}</span></div>`).join(''); },
+    async alertas(p){ let out=''; try{ const d=await ventas(p); const bajo=(d.stock_bajo||[]);
         bajo.slice(0,8).forEach(s=>{ out+=`<span class="chip crit">● Stock bajo: ${s.nombre} (${s.local})</span>`; }); }catch(e){}
       try{ const a=await getJSON('/maximus/panel/alertas'); (a.alertas||[]).forEach(x=>{ out+=`<span class="chip warn">▲ ${x.umbral}x ${x.producto}${x.local?' ('+x.local+')':''}</span>`; }); }catch(e){}
       return out || '<div class="chip good">✓ Sin alertas activas</div>'; },

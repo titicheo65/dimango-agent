@@ -670,7 +670,13 @@ async def maximus_panel_ventas(request: Request):
     if not _maximus_token_ok(request):
         raise HTTPException(status_code=401, detail="No autorizado")
     from agent import paneles
-    return JSONResponse(await paneles.ventas_panel(), headers={"Cache-Control": "no-store"})
+    q = request.query_params
+    datos = await paneles.ventas_panel(
+        fecha_inicio=q.get("fecha_inicio", ""),
+        fecha_fin=q.get("fecha_fin", ""),
+        local=q.get("local", ""),
+    )
+    return JSONResponse(datos, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/maximus/panel/checklist")

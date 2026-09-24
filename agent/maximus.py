@@ -595,6 +595,19 @@ HERRAMIENTAS = [
                     "enum": ["playa", "mall"],
                     "description": "Solo si Ricardo especifica un local (útil sobre todo para checklist).",
                 },
+                "fecha_inicio": {
+                    "type": "string",
+                    "description": (
+                        "AAAA-MM-DD. Solo para 'ventas' y 'top_productos': abre el panel con un "
+                        "periodo PASADO en vez de hoy. Usalo cuando Ricardo pida ver en pantalla "
+                        "una semana, un mes o un dia anterior ('muestrame la semana pasada en el "
+                        "panel', 'los mas vendidos del 14 al 20'). Sin esto el panel muestra hoy."
+                    ),
+                },
+                "fecha_fin": {
+                    "type": "string",
+                    "description": "AAAA-MM-DD. El final del periodo. Si va solo fecha_inicio, es un dia suelto.",
+                },
             },
             "required": ["accion"],
         },
@@ -1356,9 +1369,20 @@ async def ejecutar_herramienta(nombre: str, args: dict) -> str:
             accion = (args.get("accion") or "abrir").lower()
             panel = (args.get("panel") or "").lower()
             local = (args.get("local") or "").lower()
+            f_ini = (args.get("fecha_inicio") or "").strip()
+            f_fin = (args.get("fecha_fin") or "").strip()
             payload = {"accion": accion, "panel": panel}
-            if local:
-                payload["args"] = {"local": local}
+            # El rango viaja a la pantalla igual que el local. Hasta el 24-sep
+            # el panel de ventas pedia SIEMPRE el dia de hoy, aunque la funcion
+            # de DiMangoToGo aceptaba fechas desde el principio: Maximus podia
+            # decir por chat cuanto se vendio la semana pasada y al pedirle
+            # verlo en pantalla contestaba que no tenia modo historico.
+            argumentos = {}
+            if local: argumentos["local"] = local
+            if f_ini: argumentos["fecha_inicio"] = f_ini
+            if f_fin: argumentos["fecha_fin"] = f_fin
+            if argumentos:
+                payload["args"] = argumentos
             await eventos.publicar("panel", **payload)
             if accion == "inicio":
                 return "Listo, dejé la pantalla en inicio."
