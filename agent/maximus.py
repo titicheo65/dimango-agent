@@ -1380,6 +1380,11 @@ async def ejecutar_herramienta(nombre: str, args: dict) -> str:
                 "vigilante": ("Maximus-Vigilante", "Vigilante del sistema"),
                 "checklist": ("DimangoChecklistReposicion", "Checklist de reposición"),
                 "reposicion": ("DimangoChecklistReposicion", "Checklist de reposición"),
+                # Marketing (23-sep-2026). Sin esto se podian programar pero no
+                # delegar: pedirle "lanza el marketing" caia en el camino
+                # generico y solo quedaba anotado como pendiente.
+                "marketing": ("Maximus-MarketingDiario", "Marketing (propuestas del día)"),
+                "laboratorio": ("Maximus-LaboratorioSemanal", "Laboratorio creativo"),
             }
             if agente in AGENTES_TAREA:
                 task_win, etiqueta = AGENTES_TAREA[agente]
