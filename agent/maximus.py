@@ -620,11 +620,15 @@ HERRAMIENTAS = [
                 "panel": {
                     "type": "string",
                     "enum": ["ventas", "top_productos", "checklist", "alertas", "correo", "calendario",
-                             "memoria", "agentes", "comparativa", "actividad", "resumen", "delegaciones", "todos"],
+                             "memoria", "agentes", "comparativa", "actividad", "resumen", "delegaciones",
+                             "movimientos", "todos"],
                     "description": (
                         "Qué panel. 'ventas' del día por local, 'top_productos' los más vendidos, "
                         "'checklist' insumos a reponer, 'alertas', 'correo', 'calendario', 'memoria' "
                         "(grafo de memoria que se ilumina con las notas que usas), 'agentes' (roster y estado), "
+                        "'movimientos' (lo que SALIO y ENTRO de bodega de verdad: que, cuanto, a que local y "
+                        "QUIEN — ábrelo si pide ver en pantalla los retiros o entregas de bodega; acepta "
+                        "fecha_inicio como dia a consultar), "
                         "'comparativa' (Mall vs Playa lado a lado — ábrelo si Ricardo dice 'compara los locales', "
                         "'compárame Mall con Playa'), 'actividad' (feed en vivo de lo que estás haciendo/ejecutando — "
                         "ábrelo si pide ver tu actividad o qué estás haciendo), 'resumen' (resumen del día en un panel). "
@@ -1482,8 +1486,13 @@ async def ejecutar_herramienta(nombre: str, args: dict) -> str:
             # verlo en pantalla contestaba que no tenia modo historico.
             argumentos = {}
             if local: argumentos["local"] = local
-            if f_ini: argumentos["fecha_inicio"] = f_ini
-            if f_fin: argumentos["fecha_fin"] = f_fin
+            if panel == "movimientos":
+                # Este panel habla en "fecha" (un dia) en vez de rango: es el
+                # mismo parametro que ya usa la herramienta de movimientos.
+                if f_ini: argumentos["fecha"] = f_ini
+            else:
+                if f_ini: argumentos["fecha_inicio"] = f_ini
+                if f_fin: argumentos["fecha_fin"] = f_fin
             if argumentos:
                 payload["args"] = argumentos
             await eventos.publicar("panel", **payload)

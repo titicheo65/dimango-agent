@@ -679,6 +679,23 @@ async def maximus_panel_ventas(request: Request):
     return JSONResponse(datos, headers={"Cache-Control": "no-store"})
 
 
+@app.get("/maximus/panel/movimientos")
+async def maximus_panel_movimientos(request: Request):
+    """Movimientos reales de bodega: qué salió, a dónde y quién."""
+    if not _maximus_token_ok(request):
+        raise HTTPException(status_code=401, detail="No autorizado")
+    from agent import paneles
+    q = request.query_params
+    datos = await paneles.movimientos_panel(
+        dias=int(q.get("dias") or 0),
+        fecha=q.get("fecha", ""),
+        tipo=q.get("tipo", ""),
+        local=q.get("local", ""),
+        item=q.get("item", ""),
+    )
+    return JSONResponse(datos, headers={"Cache-Control": "no-store"})
+
+
 @app.get("/maximus/panel/checklist")
 async def maximus_panel_checklist(request: Request):
     if not _maximus_token_ok(request):

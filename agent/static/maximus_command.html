@@ -372,7 +372,7 @@
   }
   function maxiPanel(tipo, on){ const p=panels.find(x=>x.tipo===(tipo||'').toLowerCase()); if(p){ panels.forEach(x=>x.maxi=false); p.maxi = on!==false; } render(); syncStage(); }
 
-  const TITLES = {ventas:'Ventas hoy', top_productos:'Top productos', checklist:'Checklist', alertas:'Alertas', correo:'Correos', calendario:'Calendario', memoria:'Memoria', agentes:'Agentes', comparativa:'Mall ⇄ Playa', actividad:'Actividad', resumen:'Resumen del día', delegaciones:'Delegaciones'};
+  const TITLES = {ventas:'Ventas hoy', top_productos:'Top productos', checklist:'Checklist', alertas:'Alertas', correo:'Correos', calendario:'Calendario', memoria:'Memoria', agentes:'Agentes', comparativa:'Mall ⇄ Playa', actividad:'Actividad', resumen:'Resumen del día', movimientos:'Movimientos de bodega', delegaciones:'Delegaciones'};
   function render(){
     panelsEl.innerHTML='';
     panels.forEach(p=>{
@@ -534,6 +534,24 @@
       return `<div class="cmp">${col('Playa',P,'var(--accent)')}${col('Mall',M,'var(--violet)')}</div>
         <div class="muted" style="text-align:center;margin-top:12px">${dif? lider+' lidera por '+dif+'%' : 'Empate técnico'}</div>`; },
     async actividad(p){ return renderActividad(); },
+    async movimientos(p){
+      const qs=[]; ['dias','fecha','tipo','local','item'].forEach(k=>{ if(p&&p[k]!==undefined&&p[k]!=='') qs.push(k+'='+encodeURIComponent(p[k])); });
+      const d=await getJSON('/maximus/panel/movimientos'+(qs.length?'?'+qs.join('&'):''));
+      if(d.error) return '<div class="err">'+d.error+'</div>';
+      const v=d.ventana||{};
+      const cuando = (v.desde && v.hasta && v.desde!==v.hasta) ? (v.desde+' a '+v.hasta) : (v.desde||'');
+      if(!d.total) return '<div class="muted">Sin movimientos de bodega en '+(cuando||'ese periodo')+'.</div>';
+      let out = `<div class="muted" style="margin-bottom:6px">📅 ${cuando}${v.tipo&&v.tipo!=='todos'?' · '+v.tipo:''}${v.local&&v.local!=='ambos'?' · '+v.local:''} · ${d.total} movimientos</div>`;
+      // Lo que mas se movio: es la pregunta que se hace de verdad al mirar esto.
+      (d.top_items||[]).slice(0,8).forEach(i=>{
+        out += `<div class="row"><span class="n">${i.nombre}</span><span class="v">${i.cantidad} ${i.unidad||''}</span></div>`;
+      });
+      const q=Object.entries(d.por_responsable||{}).sort((a,b)=>b[1]-a[1]).slice(0,5);
+      if(q.length){
+        out += '<div class="muted" style="margin:8px 0 4px">Quién movió</div>';
+        q.forEach(([nom,veces])=>{ out += `<div class="row"><span class="n">${nom}</span><span class="v">${veces}</span></div>`; });
+      }
+      return out; },
     async delegaciones(p){ const d=await getJSON('/maximus/panel/delegaciones'); const a=d.delegaciones||[];
       if(!a.length) return '<div class="muted">Sin delegaciones todavía. Dile a Maximus: "corre el advisor" o "pídele a alguien que…".</div>';
       const cls=e=> (e==='lanzado'||e==='hecho')?'good': e==='error'?'crit':'warn';

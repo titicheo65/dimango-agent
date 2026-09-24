@@ -82,6 +82,49 @@ async def ventas_panel(fecha_inicio: str = "", fecha_fin: str = "", local: str =
     }
 
 
+async def movimientos_panel(dias: int = 0, fecha: str = "", tipo: str = "",
+                            local: str = "", item: str = "") -> dict:
+    """
+    Lo que de verdad salió y entró de bodega: qué, cuánto, a dónde y quién.
+
+    El panel que faltaba. Maximus ya podía responderlo por chat desde hoy, pero
+    al pedirle verlo en pantalla no tenía dónde dibujarlo — el dato existía y
+    la pantalla no lo sabía.
+    """
+    from agent.maximus import DIMANGOWORKING_MOVIMIENTOS_URL, DIMANGOWORKING_SECRET
+    if not DIMANGOWORKING_SECRET:
+        return {"error": "DiMangoWorking no configurado en el servidor."}
+
+    consulta = {}
+    if dias:  consulta["dias"] = dias
+    if fecha: consulta["fecha"] = fecha
+    if tipo:  consulta["tipo"] = tipo.upper()
+    if local: consulta["local"] = local
+    if item:  consulta["item"] = item
+
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=25) as c:
+            r = await c.post(DIMANGOWORKING_MOVIMIENTOS_URL, json=consulta,
+                             headers={"x-maximus-secret": DIMANGOWORKING_SECRET})
+    except httpx.RequestError as e:
+        return {"error": f"No pude conectar con DiMangoWorking: {e}"}
+    if r.status_code != 200:
+        return {"error": f"DiMangoWorking respondió {r.status_code}"}
+
+    d = r.json()
+    if not d.get("ok"):
+        return {"error": d.get("error", "No pude leer los movimientos.")}
+
+    return {
+        "ventana": d.get("ventana", {}),
+        "total": d.get("total_movimientos", 0),
+        "top_items": d.get("top_items", [])[:10],
+        "por_responsable": d.get("por_responsable", {}),
+        "movimientos": d.get("movimientos", [])[:25],
+    }
+
+
 # ── Checklist de reposición (DiMangoToGo) ─────────────────────────────────
 async def checklist_panel(local: str = "playa") -> dict:
     from agent.maximus import DIMANGOTOGO_CHECKLIST_URL, DIMANGOTOGO_SECRET
