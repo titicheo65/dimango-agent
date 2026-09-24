@@ -361,7 +361,16 @@
     tipo=(tipo||'').toLowerCase();
     let p = panels.find(x=>x.tipo===tipo);
     if(!p){ p={id:'p'+Date.now()+Math.floor(Math.random()*99), tipo, args:args||{}, maxi:false}; panels.push(p); render(); }
-    else { p.args=Object.assign(p.args||{},args||{}); }
+    // Los argumentos se REEMPLAZAN, no se mezclan.
+    //
+    // Con Object.assign, si el panel ya estaba abierto con un rango y despues
+    // pedias otro dia, quedaban los dos filtros pegados; y si pedias "las
+    // ventas de hoy" sin fecha, seguian los argumentos viejos y la pantalla
+    // mostraba la semana pasada como si fuera hoy.
+    //
+    // Cada instruccion es completa en si misma: "muestrame las ventas" quiere
+    // decir hoy, no "lo ultimo que filtraste".
+    else { p.args = args ? Object.assign({}, args) : {}; }
     syncStage();
     loadPanel(p);
     return p;
