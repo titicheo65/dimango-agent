@@ -769,6 +769,40 @@
     document.addEventListener('pointerdown', unlockAudio); }
   if(cfg.token){ boot(); }
 })();
+
+  // ── Recordatorios que suenan solos (25-sep-2026) ───────────────────────
+  // El panel ya sabia hablar; lo que le faltaba era mirar la hora. Cada minuto
+  // pregunta si hay un recordatorio vencido y lo dice en voz alta, que es lo
+  // que Ricardo pidio cuando dijo "que me llame en vez de escribirme".
+  //
+  // Lo ya dicho se guarda en el propio celular, NO en la marca `avisado` de la
+  // base: esa la usa el aviso de Telegram y los dos canales no deben pisarse.
+  // Si el mismo recordatorio llega por los dos lados es correcto, no un error.
+  //
+  // iPhone no deja sonar nada hasta que el usuario toca la pantalla una vez;
+  // por eso solo habla con el audio ya desbloqueado (`audioListo`).
+  const REC_DICHOS = 'maximus_recordatorios_dichos';
+  function recYaDicho(id){
+    try{ return JSON.parse(localStorage.getItem(REC_DICHOS)||'[]').includes(id); }
+    catch(e){ return false; }
+  }
+  function recMarcar(id){
+    try{ const a=JSON.parse(localStorage.getItem(REC_DICHOS)||'[]');
+      a.push(id); localStorage.setItem(REC_DICHOS, JSON.stringify(a.slice(-100)));
+    }catch(e){}
+  }
+  async function vigilarRecordatorios(){
+    if(!audioListo) return;
+    try{
+      const d = await getJSON('/maximus/panel/tareas?categoria=recordatorio');
+      const pend = (d.items||[]).filter(i=>i.atrasado && !recYaDicho(i.id));
+      if(!pend.length) return;
+      const n = pend[0];
+      recMarcar(n.id);
+      pedirVoz('Recordatorio. ' + n.contenido);
+    }catch(e){ /* si falla, el aviso de Telegram sigue siendo la red */ }
+  }
+  setInterval(vigilarRecordatorios, 60000);
 </script>
 </body>
 </html>
