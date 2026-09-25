@@ -768,7 +768,6 @@
     // Desbloquear el audio con el primer toque en cualquier parte (Safari lo exige).
     document.addEventListener('pointerdown', unlockAudio); }
   if(cfg.token){ boot(); }
-})();
 
   // ── Recordatorios que suenan solos (25-sep-2026) ───────────────────────
   // El panel ya sabia hablar; lo que le faltaba era mirar la hora. Cada minuto
@@ -803,6 +802,8 @@
     }catch(e){ /* si falla, el aviso de Telegram sigue siendo la red */ }
   }
   setInterval(vigilarRecordatorios, 60000);
+})();
+
 </script>
 </body>
 </html>
