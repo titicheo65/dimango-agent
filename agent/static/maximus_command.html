@@ -381,7 +381,7 @@
   }
   function maxiPanel(tipo, on){ const p=panels.find(x=>x.tipo===(tipo||'').toLowerCase()); if(p){ panels.forEach(x=>x.maxi=false); p.maxi = on!==false; } render(); syncStage(); }
 
-  const TITLES = {ventas:'Ventas hoy', top_productos:'Top productos', checklist:'Checklist', alertas:'Alertas', correo:'Correos', calendario:'Calendario', memoria:'Memoria', agentes:'Agentes', comparativa:'Mall ⇄ Playa', actividad:'Actividad', resumen:'Resumen del día', movimientos:'Movimientos de bodega', delegaciones:'Delegaciones'};
+  const TITLES = {ventas:'Ventas hoy', top_productos:'Top productos', checklist:'Checklist', alertas:'Alertas', correo:'Correos', calendario:'Calendario', memoria:'Memoria', agentes:'Agentes', comparativa:'Mall ⇄ Playa', actividad:'Actividad', resumen:'Resumen del día', movimientos:'Movimientos de bodega', delegaciones:'Delegaciones', tareas:'Tus tareas'};
   function render(){
     panelsEl.innerHTML='';
     panels.forEach(p=>{
@@ -560,6 +560,22 @@
         out += '<div class="muted" style="margin:8px 0 4px">Quién movió</div>';
         q.forEach(([nom,veces])=>{ out += `<div class="row"><span class="n">${nom}</span><span class="v">${veces}</span></div>`; });
       }
+      return out; },
+    async tareas(p){
+      const qs = (p&&p.categoria)? '?categoria='+encodeURIComponent(p.categoria) : '';
+      const d = await getJSON('/maximus/panel/tareas'+qs);
+      if(d.error) return '<div class="err">'+d.error+'</div>';
+      if(!d.total) return '<div class="muted">No tienes tareas ni recordatorios guardados. Dile a Maximus: "gu\u00e1rdame una tarea\u2026"</div>';
+      const ICO = {recordatorio:'\u23f0', tarea:'\u2611\ufe0f', mejora:'\u2b50', nota:'\ud83d\udcdd'};
+      let out = '';
+      if(d.vencidos) out += '<div class="chip crit">\u25cf '+d.vencidos+' con la hora cumplida</div>';
+      const resumen = Object.entries(d.por_categoria||{}).map(([k,v])=>v+' '+k+(v>1?'s':'')).join(' \u00b7 ');
+      out += '<div class="muted" style="margin:6px 0 8px">'+resumen+'</div>';
+      (d.items||[]).forEach(i=>{
+        const hora = i.recordar_en ? '<span class="v'+(i.atrasado?' crit':'')+'">'+i.recordar_en+'</span>'
+                                   : '<span class="v" style="opacity:.5">'+(i.creada||'')+'</span>';
+        out += '<div class="row"><span class="n">'+(ICO[i.categoria]||'\u2022')+' '+i.contenido+'</span>'+hora+'</div>';
+      });
       return out; },
     async delegaciones(p){ const d=await getJSON('/maximus/panel/delegaciones'); const a=d.delegaciones||[];
       if(!a.length) return '<div class="muted">Sin delegaciones todavía. Dile a Maximus: "corre el advisor" o "pídele a alguien que…".</div>';

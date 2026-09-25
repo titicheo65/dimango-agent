@@ -419,3 +419,71 @@ async def delegaciones_panel() -> dict:
         out.append({"agente": d.agente, "tarea": d.tarea, "estado": d.estado,
                     "resultado": d.resultado, "cuando": cuando})
     return {"delegaciones": out}
+
+
+# ── Tareas y notas personales de Ricardo ──────────────────────────────────
+async def tareas_panel(categoria: str = "") -> dict:
+    """
+    Lo que Ricardo le pidió a Maximus que le guardara.
+
+    El mismo hueco de siempre: Maximus ya guardaba y listaba estas notas por
+    chat, pero al pedirle verlas en pantalla no tenía dónde dibujarlas. Es el
+    tercer panel que nace así, después de ventas por fecha y movimientos.
+
+    Se ordena por urgencia real, no por fecha de creación: primero el
+    recordatorio cuya hora ya pasó o está por llegar, después lo que no tiene
+    hora. Un recordatorio vencido arriba es el único orden que sirve.
+    """
+    from datetime import datetime, timezone
+    from agent.maximus import TZ_CHILE
+    from agent.notas_personales import listar_notas
+
+    cat = (categoria or "").strip().lower() or None
+    try:
+        notas = await listar_notas(cat, limite=60)
+    except Exception as e:
+        logger.warning("tareas_panel: %s", e)
+        return {"error": "No pude leer las notas personales."}
+
+    ahora = datetime.now(timezone.utc)
+    items, vencidos = [], 0
+    for n in notas:
+        creada = rec = ""
+        atrasado = False
+        try:
+            creada = n.creado_en.replace(tzinfo=timezone.utc).astimezone(TZ_CHILE).strftime("%d-%m %H:%M")
+        except Exception:
+            pass
+        if n.recordar_en:
+            try:
+                r = n.recordar_en.replace(tzinfo=timezone.utc)
+                rec = r.astimezone(TZ_CHILE).strftime("%d-%m %H:%M")
+                atrasado = r <= ahora
+            except Exception:
+                pass
+        if atrasado:
+            vencidos += 1
+        items.append({
+            "id": n.id,
+            "contenido": n.contenido,
+            "categoria": n.categoria,
+            "creada": creada,
+            "recordar_en": rec,
+            "atrasado": atrasado,
+            "avisado": bool(n.avisado),
+        })
+
+    orden = {"recordatorio": 0, "tarea": 1, "mejora": 2, "nota": 3}
+    items.sort(key=lambda i: (
+        0 if i["atrasado"] else 1,
+        0 if i["recordar_en"] else 1,
+        i["recordar_en"] or "9999",
+        orden.get(i["categoria"], 9),
+    ))
+
+    por_categoria = {}
+    for i in items:
+        por_categoria[i["categoria"]] = por_categoria.get(i["categoria"], 0) + 1
+
+    return {"total": len(items), "vencidos": vencidos,
+            "por_categoria": por_categoria, "items": items}

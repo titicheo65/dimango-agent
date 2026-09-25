@@ -621,11 +621,11 @@ HERRAMIENTAS = [
                     "type": "string",
                     "enum": ["ventas", "top_productos", "checklist", "alertas", "correo", "calendario",
                              "memoria", "agentes", "comparativa", "actividad", "resumen", "delegaciones",
-                             "movimientos", "todos"],
+                             "movimientos", "tareas", "todos"],
                     "description": (
                         "Qué panel. 'ventas' del día por local, 'top_productos' los más vendidos, "
                         "'checklist' insumos a reponer, 'alertas', 'correo', 'calendario', 'memoria' "
-                        "(grafo de memoria que se ilumina con las notas que usas), 'agentes' (roster y estado), "
+                        "(grafo de memoria que se ilumina con las notas que usas), 'agentes' (roster y estado), 'tareas' (tus notas, recordatorios y pendientes guardados), "
                         "'movimientos' (lo que SALIO y ENTRO de bodega de verdad: que, cuanto, a que local y "
                         "QUIEN — ábrelo si pide ver en pantalla los retiros o entregas de bodega; acepta "
                         "fecha_inicio como dia a consultar), "

@@ -696,6 +696,16 @@ async def maximus_panel_movimientos(request: Request):
     return JSONResponse(datos, headers={"Cache-Control": "no-store"})
 
 
+@app.get("/maximus/panel/tareas")
+async def maximus_panel_tareas(request: Request):
+    """Notas, mejoras, recordatorios y tareas que Ricardo le pidió guardar."""
+    if not _maximus_token_ok(request):
+        raise HTTPException(status_code=401, detail="No autorizado")
+    from agent import paneles
+    datos = await paneles.tareas_panel(categoria=request.query_params.get("categoria", ""))
+    return JSONResponse(datos, headers={"Cache-Control": "no-store"})
+
+
 @app.get("/maximus/panel/checklist")
 async def maximus_panel_checklist(request: Request):
     if not _maximus_token_ok(request):
