@@ -1,22 +1,44 @@
 {
-  "_comentario": "Números autorizados a abrir el portón por WhatsApp escribiendo la palabra clave. NUNCA dejar una entrada con teléfono vacío y activo:true — calzaría con cualquier remitente sin número. La config se relee en cada mensaje, no hace falta reiniciar el agente.",
+  "_comentario": "Lista de numeros autorizados a abrir el porton por WhatsApp, escribiendo la palabra clave dentro de su horario (salvo horario_libre: true, que abre a cualquier hora). Cada persona puede tener franja propia con 'desde'/'hasta'; quien no la tenga usa horario_inicio/horario_fin. Para desactivar a alguien: activo=false, NO borrar la fila. NUNCA dejar una entrada con telefono vacio y activo=true: calzaria con cualquier remitente. OJO: este archivo se edito a mano en el servidor y quedo distinto del repositorio (26-sep-2026). Si vuelve a divergir, MANDA EL DEL SERVIDOR: ahi estan las personas reales.",
   "palabra_clave": "porton",
-  "horario_inicio": "07:00",
+  "horario_inicio": "09:55",
   "horario_fin": "10:05",
   "autorizados": [
     {
-      "telefono": "+56962993135",
-      "nombre": "Osorio",
+      "telefono": "56974965689",
+      "nombre": "ricardo",
+      "activo": true,
+      "horario_libre": true
+    },
+    {
+      "telefono": "56941872841",
+      "nombre": "Chica",
       "activo": true,
       "desde": "07:00",
       "hasta": "10:05"
     },
     {
-      "telefono": "+56941872841",
-      "nombre": "Chica",
+      "telefono": "56962993135",
+      "nombre": "osorio",
       "activo": true,
-      "desde": "08:00",
+      "desde": "07:00",
       "hasta": "10:05"
+    },
+    {
+      "telefono": "56950460089",
+      "nombre": "veronica",
+      "activo": true
+    },
+    {
+      "telefono": "56956673866",
+      "nombre": "playa cel",
+      "activo": true,
+      "horario_libre": true
+    },
+    {
+      "telefono": "56977962181",
+      "nombre": "latin",
+      "activo": true
     }
   ]
 }
