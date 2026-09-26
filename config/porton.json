@@ -1,12 +1,13 @@
 {
-  "_comentario": "Lista de números autorizados a abrir el portón por WhatsApp, escribiendo la palabra clave dentro del horario configurado. Para desactivar a alguien: cambiar 'activo' a false, no borrar la fila (se pierde el historial de a quién se le dio acceso alguna vez).",
-
+  "_comentario": "Números autorizados a abrir el portón por WhatsApp escribiendo la palabra clave. NUNCA dejar una entrada con teléfono vacío y activo:true — calzaría con cualquier remitente sin número. La config se relee en cada mensaje, no hace falta reiniciar el agente.",
   "palabra_clave": "porton",
-
-  "horario_inicio": "09:55",
+  "horario_inicio": "07:00",
   "horario_fin": "10:05",
-
   "autorizados": [
-    {"telefono": "", "nombre": "", "activo": true}
+    {
+      "telefono": "+56962993135",
+      "nombre": "Osorio",
+      "activo": true
+    }
   ]
 }
