@@ -77,10 +77,24 @@ def es_palabra_clave(texto: str, cfg: dict) -> bool:
     return _normalizar_texto(texto) == clave
 
 
-def _dentro_de_horario(cfg: dict) -> bool:
+def _franja(cfg: dict, persona: dict | None = None) -> tuple[str, str]:
+    """
+    La franja de esta persona si tiene una propia; si no, la general.
+
+    Por qué por persona (25-sep-2026): el portón lo abre gente que entra a
+    horas distintas —el que recibe proveedores a las 07:00 no es el mismo que
+    llega a las 08:00—. Con una sola ventana para todos, ampliarla para uno
+    se la ampliaba a todos.
+    """
+    p = persona or {}
+    inicio = p.get("desde") or cfg.get("horario_inicio", "00:00")
+    fin = p.get("hasta") or cfg.get("horario_fin", "23:59")
+    return inicio, fin
+
+
+def _dentro_de_horario(cfg: dict, persona: dict | None = None) -> bool:
     ahora = datetime.now(TZ_CHILE).strftime("%H:%M")
-    inicio = cfg.get("horario_inicio", "00:00")
-    fin = cfg.get("horario_fin", "23:59")
+    inicio, fin = _franja(cfg, persona)
     return inicio <= ahora <= fin
 
 
@@ -125,11 +139,11 @@ async def procesar_mensaje_porton(telefono: str, texto: str) -> str | None:
         logger.warning(f"[PORTON] Intento denegado (número no autorizado): {telefono}")
         return "No tienes autorización para abrir el portón."
 
-    if not persona.get("horario_libre") and not _dentro_de_horario(cfg):
-        await _registrar(telefono, "denegado_horario",
-                          f"ventana {cfg.get('horario_inicio')}-{cfg.get('horario_fin')}")
-        logger.warning(f"[PORTON] Intento fuera de horario: {telefono}")
-        return f"El portón solo se abre entre las {cfg.get('horario_inicio')} y las {cfg.get('horario_fin')}."
+    inicio, fin = _franja(cfg, persona)
+    if not persona.get("horario_libre") and not _dentro_de_horario(cfg, persona):
+        await _registrar(telefono, "denegado_horario", f"ventana {inicio}-{fin}")
+        logger.warning(f"[PORTON] Intento fuera de horario ({persona.get('nombre')}): {telefono}")
+        return f"El portón solo se abre entre las {inicio} y las {fin}."
 
     ok, error = await _abrir_porton_tuya()
     if ok:

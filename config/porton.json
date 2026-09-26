@@ -7,7 +7,16 @@
     {
       "telefono": "+56962993135",
       "nombre": "Osorio",
-      "activo": true
+      "activo": true,
+      "desde": "07:00",
+      "hasta": "10:05"
+    },
+    {
+      "telefono": "+56941872841",
+      "nombre": "Chica",
+      "activo": true,
+      "desde": "08:00",
+      "hasta": "10:05"
     }
   ]
 }
