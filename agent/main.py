@@ -36,6 +36,7 @@ from agent import telegram_maximus as tg
 from agent.voz import sintetizar as sintetizar_voz
 from agent.alertas_venta import inicializar_alertas, loop_alertas_venta
 from agent.notas_personales import inicializar_notas, loop_recordatorios_personales
+from agent.canario_pagos import loop_canario
 from agent import checklist_operativo as checklist
 from agent import telegram_checklist as tg_checklist
 from agent import porton
@@ -124,12 +125,17 @@ async def lifespan(app: FastAPI):
     tarea_checklist_envios = asyncio.create_task(checklist.loop_envios_checklist(tg_checklist))
     # Checklist operativo: reenvía a los 10 min, escala al supervisor a los 20
     tarea_checklist_escalamiento = asyncio.create_task(checklist.loop_escalamiento_checklist(tg_checklist))
+    # Vigila que el cliente siga pudiendo pagar: si una función de pago vuelve
+    # a exigir sesión, el botón aparece pero nunca cobra, y el único síntoma es
+    # un cliente que se rinde y llama al garzón (26-sep-2026).
+    tarea_canario_pagos = asyncio.create_task(loop_canario(12))
     yield
     tarea_colacion.cancel()
     tarea_recordatorio_diario.cancel()
     tarea_alertas_venta.cancel()
     tarea_recordatorios_personales.cancel()
     tarea_checklist_envios.cancel()
+    tarea_canario_pagos.cancel()
     tarea_checklist_escalamiento.cancel()
 
 
