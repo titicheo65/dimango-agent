@@ -25,7 +25,8 @@
 import os
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time as _time
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -52,6 +53,20 @@ def _token() -> str:
     return os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 
 SILENCIO_HORAS = 12
+
+# Franja en la que se AVISA (hora de Arica). La revision sigue corriendo cada
+# 30 min, pero fuera de esta ventana se calla: un aviso a las 3 de la manana no
+# lo va a atender nadie, y el unico efecto de mandarlo es enseñar a ignorar los
+# que llegan de dia. Lo que se detecta fuera de hora no se pierde -- como no se
+# marca como avisado, sale en el primer chequeo dentro de la franja.
+TZ_CHILE = ZoneInfo("America/Santiago")
+AVISAR_DESDE = _time(14, 0)
+AVISAR_HASTA = _time(22, 30)
+
+
+def _en_horario_de_aviso(ahora_utc: datetime | None = None) -> bool:
+    ahora = (ahora_utc or datetime.now(tz=ZoneInfo("UTC"))).astimezone(TZ_CHILE).time()
+    return AVISAR_DESDE <= ahora <= AVISAR_HASTA
 LOCAL_LEGIBLE = {"playa": "Playa Chinchorro", "mall": "Mall Plaza Arica"}
 
 # producto_id+local -> (cuando se aviso, con cuanta cantidad)
@@ -121,6 +136,12 @@ async def revisar_y_avisar() -> dict:
     nuevos = [p for p in productos if _hay_que_avisar(p, ahora)]
     if not nuevos:
         return {"revisados": len(productos), "avisados": 0}
+
+    if not _en_horario_de_aviso():
+        # No se marcan como avisados: saldran en el primer chequeo de la tarde.
+        logger.info("[STOCK] %s novedad(es) fuera de horario (%s-%s) — se avisan mas tarde",
+                    len(nuevos), AVISAR_DESDE.strftime("%H:%M"), AVISAR_HASTA.strftime("%H:%M"))
+        return {"revisados": len(productos), "avisados": 0, "fuera_de_horario": len(nuevos)}
 
     enviados = 0
     for local in ("playa", "mall"):
