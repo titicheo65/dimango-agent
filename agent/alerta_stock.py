@@ -6,9 +6,12 @@
 # `notificar_alerta_stock` que NADIE usaba -- estaba el interruptor y nunca se
 # construyo el aparato.
 #
-# Umbral: `stock_minimo` del producto si esta cargado; si no, 2. Es el mismo
-# valor por defecto de las pantallas de Stock En Vivo, asi que lo que aca se
-# avisa es lo mismo que alla se ve en rojo.
+# Mira INSUMOS, no productos (corregido 26-sep-2026): la primera version leia
+# el stock de Product y solo avisaba de tortas enteras. Solo entran los que
+# tienen 'Descuenta' (controla_stock) y/o 'Corta venta' (bloquea_venta)
+# encendido, que es lo que Ricardo controla de verdad.
+#
+# Umbral: `stock_minimo` del insumo en ese local si esta cargado; si no, 2.
 #
 # Lo dificil de una alerta asi no es mandarla: es NO repetirla. Un aviso cada
 # 20 minutos del mismo producto se ignora en un dia, y despues se ignoran
@@ -69,7 +72,7 @@ async def _consultar() -> list[dict]:
     if not d.get("ok"):
         logger.error("[STOCK] %s", d.get("error"))
         return []
-    return d.get("productos", [])
+    return d.get("insumos", [])
 
 
 def _hay_que_avisar(p: dict, ahora: datetime) -> bool:
@@ -79,7 +82,7 @@ def _hay_que_avisar(p: dict, ahora: datetime) -> bool:
         return True
     cuando, cantidad_avisada = previo
     # Se quedo en cero despues de haber avisado con 1 o 2: es noticia nueva.
-    if p["cantidad"] <= 0 < cantidad_avisada:
+    if p["stock"] <= 0 < cantidad_avisada:
         return True
     return ahora - cuando > timedelta(hours=SILENCIO_HORAS)
 
@@ -124,23 +127,34 @@ async def revisar_y_avisar() -> dict:
         delLocal = [p for p in nuevos if p["local"] == local]
         if not delLocal:
             continue
-        agotados = [p for p in delLocal if p["agotado"]]
+
+        # Lo primero no es lo que esta en cero: es lo que al estar en cero
+        # TUMBA PLATOS de la carta (corta_venta). Eso no es un numero feo,
+        # es parte del menu que el cliente ya no puede pedir.
+        tumbando = [p for p in delLocal if p["agotado"] and p["corta_venta"]]
+        agotados = [p for p in delLocal if p["agotado"] and not p["corta_venta"]]
         porAcabarse = [p for p in delLocal if not p["agotado"]]
 
         lineas = [f"📦 STOCK — {LOCAL_LEGIBLE.get(local, local)}", ""]
+        if tumbando:
+            lineas.append("🔴 EN CERO y CORTA VENTA — hay platos agotados ahora:")
+            for p in tumbando:
+                lineas.append(f"   • {p['nombre']}" + (f"  [{p['area']}]" if p["area"] else ""))
+            lineas.append("")
         if agotados:
-            lineas.append("🔴 SIN STOCK (ya sale agotado al cliente):")
+            lineas.append("🟠 En cero:")
             for p in agotados:
-                lineas.append(f"   • {p['nombre']}")
+                lineas.append(f"   • {p['nombre']}" + (f"  [{p['area']}]" if p["area"] else ""))
             lineas.append("")
         if porAcabarse:
-            lineas.append("🟠 Por acabarse:")
+            lineas.append("🟡 Por acabarse:")
             for p in porAcabarse:
-                lineas.append(f"   • {p['nombre']} — quedan {p['cantidad']}")
+                u = f" {p['unidad']}" if p.get("unidad") else ""
+                lineas.append(f"   • {p['nombre']} — quedan {p['stock']}{u}")
         if await _enviar("\n".join(lineas).rstrip()):
             enviados += len(delLocal)
             for p in delLocal:
-                _avisados[f"{p['id']}:{p['local']}"] = (ahora, p["cantidad"])
+                _avisados[f"{p['id']}:{p['local']}"] = (ahora, p["stock"])
 
     return {"revisados": len(productos), "avisados": enviados}
 
