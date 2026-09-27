@@ -29,10 +29,24 @@ import httpx
 logger = logging.getLogger("agentkit")
 
 URL_STOCK_BAJO = "https://dimangotogo.base44.app/functions/stockBajoDimango"
-SECRET = os.getenv("DIMANGOTOGO_SECRET", "").strip() or os.getenv("MAXIMUS_API_SECRET", "").strip()
 
-CHAT_CONTROL = os.getenv("TELEGRAM_CHAT_CONTROL", "").strip()
-BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+
+# Las variables se leen DENTRO de las funciones, no al importar el modulo:
+# main.py hace los imports (linea ~40) ANTES de load_dotenv() (linea ~47), asi
+# que cualquier os.getenv() a nivel de modulo devuelve vacio en produccion.
+# El nombre real en el .env es DIMANGOTOGO_MAXIMUS_SECRET (asi lo lee maximus.py).
+def _secret() -> str:
+    return (os.getenv("DIMANGOTOGO_MAXIMUS_SECRET", "")
+            or os.getenv("DIMANGOTOGO_SECRET", "")
+            or os.getenv("MAXIMUS_API_SECRET", "")).strip()
+
+
+def _chat() -> str:
+    return os.getenv("TELEGRAM_CHAT_CONTROL", "").strip()
+
+
+def _token() -> str:
+    return os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 
 SILENCIO_HORAS = 12
 LOCAL_LEGIBLE = {"playa": "Playa Chinchorro", "mall": "Mall Plaza Arica"}
@@ -42,11 +56,12 @@ _avisados: dict[str, tuple[datetime, int]] = {}
 
 
 async def _consultar() -> list[dict]:
-    if not SECRET:
-        logger.error("[STOCK] falta DIMANGOTOGO_SECRET — no puedo consultar el stock")
+    secret = _secret()
+    if not secret:
+        logger.error("[STOCK] falta DIMANGOTOGO_MAXIMUS_SECRET — no puedo consultar el stock")
         return []
     async with httpx.AsyncClient(timeout=40) as cli:
-        r = await cli.post(URL_STOCK_BAJO, headers={"x-maximus-secret": SECRET}, json={})
+        r = await cli.post(URL_STOCK_BAJO, headers={"x-maximus-secret": secret}, json={})
     if r.status_code != 200:
         logger.error("[STOCK] stockBajoDimango devolvio %s", r.status_code)
         return []
@@ -70,14 +85,15 @@ def _hay_que_avisar(p: dict, ahora: datetime) -> bool:
 
 
 async def _enviar(texto: str) -> bool:
-    if not CHAT_CONTROL or not BOT_TOKEN:
+    chat, token = _chat(), _token()
+    if not chat or not token:
         logger.error("[STOCK] AVISO NO ENVIADO: falta TELEGRAM_CHAT_CONTROL o TELEGRAM_BOT_TOKEN")
         return False
     try:
         async with httpx.AsyncClient(timeout=15) as cli:
             r = await cli.post(
-                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-                json={"chat_id": CHAT_CONTROL, "text": texto},
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                json={"chat_id": chat, "text": texto},
             )
         if r.status_code != 200:
             logger.error("[STOCK] Telegram devolvio %s: %s", r.status_code, r.text[:200])
@@ -143,5 +159,7 @@ async def loop_alerta_stock(intervalo_minutos: int = 30):
 
 if __name__ == "__main__":
     import json
+    from dotenv import load_dotenv
+    load_dotenv()
     logging.basicConfig(level=logging.INFO)
     print(json.dumps(asyncio.run(revisar_y_avisar()), indent=2, ensure_ascii=False))

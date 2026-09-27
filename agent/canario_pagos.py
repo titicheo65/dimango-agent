@@ -40,8 +40,15 @@ CAMINOS = [
     ("obtenerPedidoTortaPublico", "ver el pedido de torta desde el link"),
 ]
 
-CHAT_CONTROL = os.getenv("TELEGRAM_CHAT_CONTROL", "").strip()
-BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+# Se leen DENTRO de la funcion, no al importar: main.py importa antes de
+# load_dotenv(), asi que a nivel de modulo llegan vacias y el canario nunca
+# habria podido avisar.
+def _chat() -> str:
+    return os.getenv("TELEGRAM_CHAT_CONTROL", "").strip()
+
+
+def _token() -> str:
+    return os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 
 
 async def revisar() -> list[tuple[str, str, int]]:
@@ -64,7 +71,8 @@ async def revisar() -> list[tuple[str, str, int]]:
 
 
 async def avisar(cerrados: list[tuple[str, str, int]]) -> bool:
-    if not cerrados or not CHAT_CONTROL or not BOT_TOKEN:
+    chat, token = _chat(), _token()
+    if not cerrados or not chat or not token:
         return False
     lineas = ["🚨 PAGO CAÍDO — el cliente no puede pagar", ""]
     for nombre, desc, status in cerrados:
@@ -78,8 +86,8 @@ async def avisar(cerrados: list[tuple[str, str, int]]) -> bool:
     try:
         async with httpx.AsyncClient(timeout=15) as cli:
             await cli.post(
-                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-                json={"chat_id": CHAT_CONTROL, "text": "\n".join(lineas)},
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                json={"chat_id": chat, "text": "\n".join(lineas)},
             )
         return True
     except Exception as e:
@@ -112,5 +120,7 @@ async def loop_canario(intervalo_horas: int = 12):
 
 if __name__ == "__main__":
     import json
+    from dotenv import load_dotenv
+    load_dotenv()
     logging.basicConfig(level=logging.INFO)
     print(json.dumps(asyncio.run(revisar_y_avisar()), indent=2, ensure_ascii=False))
