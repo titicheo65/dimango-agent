@@ -38,6 +38,7 @@ from agent.alertas_venta import inicializar_alertas, loop_alertas_venta
 from agent.notas_personales import inicializar_notas, loop_recordatorios_personales
 from agent.canario_pagos import loop_canario
 from agent.alerta_stock import loop_alerta_stock
+from agent.puente_cuadratura import loop_puente_cuadratura
 from agent import checklist_operativo as checklist
 from agent import telegram_checklist as tg_checklist
 from agent import porton
@@ -133,7 +134,13 @@ async def lifespan(app: FastAPI):
     # Avisa antes de que un producto llegue a cero, en los dos locales. Habia
     # un `notificar_alerta_stock` en TelegramConfig que nadie habia construido.
     tarea_alerta_stock = asyncio.create_task(loop_alerta_stock(30))
+    # Lleva la cuadratura del dia a DiMangoWorking, donde hasta hoy se escribia
+    # a mano. Corre a las 03:30 de Arica: a esa hora los turnos del dia anterior
+    # ya cerraron (el ultimo cierre observado fue 00:58). No manda turnos sin
+    # declarar, para no escribir ceros sobre una cuadratura cargada a mano.
+    tarea_puente_cuadratura = asyncio.create_task(loop_puente_cuadratura(3, 30))
     yield
+    tarea_puente_cuadratura.cancel()
     tarea_colacion.cancel()
     tarea_recordatorio_diario.cancel()
     tarea_alertas_venta.cancel()
