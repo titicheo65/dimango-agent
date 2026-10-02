@@ -45,7 +45,12 @@ def _secreto_togo() -> str:
 
 
 def _secreto_working() -> str:
-    return (os.getenv("MAXIMUS_API_SECRET", "") or "").strip()
+    # En el .env del servidor se llama DIMANGOWORKING_MAXIMUS_SECRET. Dentro de
+    # Base44, la funcion que recibe lo lee como MAXIMUS_API_SECRET: es el mismo
+    # secreto con dos nombres segun donde se mire, y confundirlos costo un
+    # intento (2-oct-2026).
+    return (os.getenv("DIMANGOWORKING_MAXIMUS_SECRET", "")
+            or os.getenv("MAXIMUS_API_SECRET", "")).strip()
 
 
 def _chat() -> str:
@@ -132,7 +137,7 @@ async def _avisar(texto: str) -> None:
 async def sincronizar(fecha: str | None = None, avisar: bool = True) -> dict:
     fecha = fecha or fecha_de_ayer()
     if not _secreto_togo() or not _secreto_working():
-        msg = "[CUADRATURA] falta DIMANGOTOGO_MAXIMUS_SECRET o MAXIMUS_API_SECRET"
+        msg = "[CUADRATURA] falta DIMANGOTOGO_MAXIMUS_SECRET o DIMANGOWORKING_MAXIMUS_SECRET"
         logger.error(msg)
         return {"ok": False, "error": msg}
 
