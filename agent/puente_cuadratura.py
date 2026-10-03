@@ -111,6 +111,17 @@ def _cuerpo(local: str, fecha: str, t: dict) -> dict:
         "tarjeta_caja_total": dec.get("vouchers") or 0,
         "transferencias_caja": dec.get("transferencias_caja") or 0,
         "online_caja": dec.get("online") or 0,
+        # Los dos de arriba son los que llena el formulario CierreCaja, pero
+        # NINGUN calculo de Working los lee. El que leen `CuadraturaAdmin`,
+        # `finanzasLocal` y el resumen semanal es `online_transferencias`, que el
+        # formulario deja en cero. Por eso la venta de Working venia corta desde
+        # antes del puente: Mall del 2-oct perdia $34.345 y Playa del 1-oct,
+        # $236.455 en un solo dia (2-oct-2026).
+        #
+        # Se mandan los tres: los dos de detalle, para que la cuadratura muestre
+        # transferencias y online por separado como siempre, y la suma en el
+        # campo que alimenta la venta.
+        "online_transferencias": (dec.get("transferencias_caja") or 0) + (dec.get("online") or 0),
         "t_alim": dec.get("t_alim") or 0,
         "propina_tarjeta": pro.get("propina_tarjeta") or 0,
         "propina_efectivo": pro.get("propina_efectivo") or 0,
